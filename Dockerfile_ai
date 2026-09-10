@@ -22,13 +22,11 @@ RUN pip3 config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && 
 RUN pip3 install --no-cache-dir --break-system-packages --target=/python-packages --no-deps --only-binary :all: onnxruntime && \
     pip3 install --no-cache-dir --break-system-packages --target=/python-packages --only-binary :all: \
         grpcio \
-        opencv-python-headless \
+        opencv-python-headless==4.10.0.84 \
         numpy \
         requests \
-        protobuf \
-        packaging \
-        coloredlogs \
-        flatbuffers
+        protobuf && \
+    find /python-packages -type d -name "__pycache__" -prune -exec rm -rf {} +
 
 # ============================================
 # 阶段 2: 最终运行镜像
@@ -64,7 +62,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=python-builder /python-packages /python-packages
 
 # 从外部镜像复制 ZLMediaKit 和 ffmpeg
-COPY --from=zlmediakit/zlmediakit:master /opt/media/bin /opt/media/bin
+COPY --from=zlmediakit/zlmediakit:master /opt/media/bin/MediaServer /opt/media/bin/default.pem /opt/media/bin/
 COPY --from=mwader/static-ffmpeg:6.1 /ffmpeg /usr/local/bin/ffmpeg
 COPY --from=mwader/static-ffmpeg:6.1 /ffprobe /usr/local/bin/ffprobe
 

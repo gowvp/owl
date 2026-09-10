@@ -47,4 +47,6 @@ owl
 .cursor/memory/
 .cursor/scopes/
 graphify-out/
+*.gz
 .CLAUDE.local.md
+configs/license/

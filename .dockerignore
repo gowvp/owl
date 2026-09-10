@@ -2,3 +2,6 @@ __pycache__/
 *.yaml
 *.pt
 webhook_openapi.yaml
+analysis/*backup*.onnx
+analysis/*.jpg
+analysis/*_test.py
