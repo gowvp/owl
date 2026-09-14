@@ -22,7 +22,7 @@ func init() {
 func makeEngine(t *testing.T, secret, authURL string, handler ...web.HandlerOption) (*gin.Engine, *httptest.ResponseRecorder) {
 	t.Helper()
 	r := gin.New()
-	r.Use(AuthMiddleware(secret, authURL, handler...))
+	r.Use(AuthMiddleware(secret, "", authURL, "admin", handler...))
 	r.GET("/test", func(c *gin.Context) {
 		c.String(http.StatusOK, "ok")
 	})
@@ -370,7 +370,7 @@ func TestAuthMiddleware(t *testing.T) {
 	t.Run("JWT成功后claims数据写入context", func(t *testing.T) {
 		setBlock(true)
 		r := gin.New()
-		r.Use(AuthMiddleware(secret, ""))
+		r.Use(AuthMiddleware(secret, "", "", "admin"))
 		r.GET("/test", func(c *gin.Context) {
 			uid, exists := c.Get("uid")
 			if !exists {
@@ -401,7 +401,7 @@ func TestAuthMiddleware(t *testing.T) {
 		setBlock(false)
 		const queryToken = "custom-token-from-query"
 		r := gin.New()
-		r.Use(AuthMiddleware(secret, mockSrv.URL))
+		r.Use(AuthMiddleware(secret, "", mockSrv.URL, "admin"))
 		r.GET("/test", func(c *gin.Context) {
 			tokenStr, exists := c.Get(web.KeyTokenString)
 			if !exists {
@@ -431,6 +431,69 @@ func TestAuthMiddleware(t *testing.T) {
 		// 解析失败时返回 500 或 502，取决于具体错误路径
 		if w.Code != http.StatusInternalServerError && w.Code != http.StatusBadGateway {
 			t.Errorf("期望 500 或 502，实际 %d", w.Code)
+		}
+	})
+
+	t.Run("APISecret通过Header鉴权并注入管理员上下文", func(t *testing.T) {
+		const testAPISecret = "my_custom_api_secret_123456"
+		r := gin.New()
+		r.Use(AuthMiddleware(secret, testAPISecret, "", "superadmin"))
+		r.GET("/test", func(c *gin.Context) {
+			if u, _ := c.Get("username"); u != "superadmin" {
+				t.Errorf("username 期望 superadmin，实际 %v", u)
+			}
+			if role, _ := c.Get("role"); role != "admin" {
+				t.Errorf("role 期望 admin，实际 %v", role)
+			}
+			if isAdmin, _ := c.Get("is_admin"); isAdmin != true {
+				t.Errorf("is_admin 期望 true，实际 %v", isAdmin)
+			}
+			if authType, _ := c.Get("auth_type"); authType != "api_secret" {
+				t.Errorf("auth_type 期望 api_secret，实际 %v", authType)
+			}
+			c.String(http.StatusOK, "ok")
+		})
+
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		req.Header.Set("Authorization", "Bearer "+testAPISecret)
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Errorf("期望 200，实际 %d", w.Code)
+		}
+	})
+
+	t.Run("APISecret通过Query参数鉴权通过", func(t *testing.T) {
+		const testAPISecret = "query_secret_test_999"
+		r := gin.New()
+		r.Use(AuthMiddleware(secret, testAPISecret, "", "admin"))
+		r.GET("/test", func(c *gin.Context) {
+			c.String(http.StatusOK, "ok")
+		})
+
+		// 测试 token 参数（不带 Bearer 前缀）
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/test?token="+testAPISecret, nil)
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Errorf("token参数鉴权期望 200，实际 %d", w.Code)
+		}
+	})
+
+	t.Run("APISecret错误且JWT错误时鉴权失败", func(t *testing.T) {
+		const testAPISecret = "correct_secret"
+		r := gin.New()
+		r.Use(AuthMiddleware(secret, testAPISecret, "", "admin"))
+		r.GET("/test", func(c *gin.Context) {
+			c.String(http.StatusOK, "ok")
+		})
+
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		req.Header.Set("Authorization", "Bearer wrong_secret")
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("期望 401，实际 %d", w.Code)
 		}
 	})
 }

@@ -36,6 +36,8 @@
     Timeout = '1m0s'
     # jwt 秘钥，空串时，每次启动程序将随机赋值
     JwtSecret = '6caOiETMs8SPWNHgEKA1Jhmn9wxpjAj9'
+    # 永久 API 秘钥，替代 JWT 鉴权，仅支持数字/大小写字母/下划线且最长32位；若为空或格式不合规将自动生成 32 位 UUID 并回写持久化
+    APISecret = ''
     # 第三方认证服务地址，空串则不启用，post 请求返回 200 表示认证通过，填写本服务 /health 表示免鉴权但不安全!
     AuthURL = ''
 

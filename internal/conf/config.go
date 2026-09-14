@@ -64,6 +64,7 @@ type ServerHTTP struct {
 	Port      int         `comment:"http 端口"`                // 服务器端口号
 	Timeout   Duration    `comment:"请求超时时间"`                 // 请求超时时间
 	JwtSecret string      `comment:"jwt 秘钥，空串时，每次启动程序将随机赋值"` // JWT密钥
+	APISecret string      `comment:"永久 API 秘钥，替代 JWT 鉴权，仅支持数字/大小写字母/下划线且最长32位"`
 	PProf     ServerPPROF // Pprof配置
 	AuthURL   string      `comment:"第三方认证服务地址，空串则不启用，post 请求返回 200 表示认证通过，填写本服务 /health 表示免鉴权但不安全!"`
 }

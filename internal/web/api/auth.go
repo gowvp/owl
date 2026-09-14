@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"crypto/subtle"
 	"errors"
 	"io"
 	"log/slog"
@@ -15,11 +16,9 @@ import (
 	"github.com/ixugo/goddd/pkg/web"
 )
 
-// AuthMiddleware 鉴权
-// handler 可以拦截请求，返回 true 则跳过默认鉴权行为，可以通过此参数自定义鉴权方案
-// 开启第三方鉴权时，两者任何一个通过，则鉴权通过!
-// 优先尝试 JWT（开销小），失败后再尝试 authURL（开销大）
-func AuthMiddleware(secret string, authURL string, handler ...web.HandlerOption) gin.HandlerFunc {
+// AuthMiddleware 鉴权中间件
+// 为什么: 优先通过常数时间比对静态 APISecret（替代 JWT 永久有效）；未命中时尝试 JWT 验签；皆未通过且配置了第三方 authURL 时转发鉴权
+func AuthMiddleware(jwtSecret string, apiSecret string, authURL string, defaultAdmin string, handler ...web.HandlerOption) gin.HandlerFunc {
 	client := http.Client{Timeout: 10 * time.Second}
 	return func(c *gin.Context) {
 		for _, h := range handler {
@@ -35,12 +34,33 @@ func AuthMiddleware(secret string, authURL string, handler ...web.HandlerOption)
 			auth = c.Query("token")
 		}
 
+		// 剥离可能存在的 Bearer 前缀
 		const prefix = "Bearer "
-		if len(auth) > len(prefix) && strings.EqualFold(auth[:len(prefix)], prefix) {
-			tokenStr := auth[len(prefix):]
-			claims, err := web.ParseToken(tokenStr, secret)
+		tokenStr := auth
+		hasBearerPrefix := len(auth) > len(prefix) && strings.EqualFold(auth[:len(prefix)], prefix)
+		if hasBearerPrefix {
+			tokenStr = auth[len(prefix):]
+		}
+
+		// 1. 若配置了 APISecret，且请求凭证匹配，则按管理员级别鉴权通过
+		if apiSecret != "" && tokenStr != "" && subtle.ConstantTimeCompare([]byte(tokenStr), []byte(apiSecret)) == 1 {
+			c.Set(web.KeyTokenString, auth)
+			admin := defaultAdmin
+			if admin == "" {
+				admin = "admin"
+			}
+			c.Set("username", admin)
+			c.Set("role", "admin")
+			c.Set("is_admin", true)
+			c.Set("auth_type", "api_secret")
+			c.Next()
+			return
+		}
+
+		// 2. 若带有 Bearer 前缀，尝试走原有 JWT 验签
+		if hasBearerPrefix {
+			claims, err := web.ParseToken(tokenStr, jwtSecret)
 			if err != nil && errors.Is(err, jwt.ErrTokenExpired) {
-				// 过期 token 直接要求重新登录，不降级到 authURL，防止第三方鉴权放行过期凭证
 				web.AbortWithStatusJSON(c, reason.ErrUnauthorized.WithMsg("请重新登录"))
 				return
 			}
@@ -58,7 +78,7 @@ func AuthMiddleware(secret string, authURL string, handler ...web.HandlerOption)
 
 		// 无有效 token，检查是否配置了 authURL
 		if authURL == "" {
-			web.AbortWithStatusJSON(c, reason.ErrUnauthorizedToken.WithMsg("身份验证失败"))
+			web.AbortWithStatusJSON(c, reason.ErrUnauthorized.WithMsg("身份验证失败"))
 			return
 		}
 

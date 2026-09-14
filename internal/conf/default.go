@@ -1,6 +1,7 @@
 package conf
 
 import (
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,6 +18,7 @@ func DefaultConfig() Bootstrap {
 				Port:      15123,
 				Timeout:   Duration(60 * time.Second),
 				JwtSecret: orm.GenerateRandomString(24),
+				APISecret: strings.ReplaceAll(uuid.New().String(), "-", ""),
 				AuthURL:   "",
 				PProf: ServerPPROF{
 					Enabled:   true,

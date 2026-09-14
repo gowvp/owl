@@ -92,7 +92,7 @@ func setupRouter(r *gin.Engine, uc *Usecase) {
 		ctx.Redirect(http.StatusPermanentRedirect, staticPrefix+"/"+"index.html")
 	})
 
-	auth := AuthMiddleware(uc.Conf.Server.HTTP.JwtSecret, uc.Conf.Server.HTTP.AuthURL)
+	auth := AuthMiddleware(uc.Conf.Server.HTTP.JwtSecret, uc.Conf.Server.HTTP.APISecret, uc.Conf.Server.HTTP.AuthURL, uc.Conf.Server.Username)
 	onvifserver.Register(r, uc.GB28181API.ipc, uc.SMSAPI.smsCore, uc.Conf)
 	r.Any("/health", web.WrapH(uc.getHealth))
 	r.GET("/app/metrics/api", web.WrapH(uc.getMetricsAPI))

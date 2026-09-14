@@ -57,6 +57,9 @@ func Run(bc *conf.Bootstrap) {
 	log, clean := SetupLog(bc)
 	defer clean()
 
+	// 校验并初始化 APISecret
+	initAPISecret(bc)
+
 	go setupZLM(ctx, bc.ConfigDir)
 	if !bc.Server.AI.Disabled {
 		go setupAIClient(ctx, "http://127.0.0.1:15123/ai", bc.Debug)
@@ -237,6 +240,48 @@ func setupAIClient(ctx context.Context, callback string, debug bool) {
 
 			// 等待后重启（不管是正常退出还是异常退出）
 			time.Sleep(2 * time.Second)
+		}
+	}
+}
+
+// isValidAPISecret 校验 API 秘钥是否符合语法规则
+// 为什么: 用户要求 API 秘钥只能由数字、大小写字母和下划线组成，最长 32 位且不能为空
+func isValidAPISecret(secret string) bool {
+	if len(secret) == 0 || len(secret) > 32 {
+		return false
+	}
+	for i := 0; i < len(secret); i++ {
+		c := secret[i]
+		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// initAPISecret 启动时检查并初始化 APISecret
+// 为什么: 如果配置为空则自动生成 32 位无连字符 UUID 填入并持久化；若不符合语法规范，打印警告日志并重新生成且持久化
+func initAPISecret(bc *conf.Bootstrap) {
+	raw := bc.Server.HTTP.APISecret
+	if raw == "" {
+		bc.Server.HTTP.APISecret = strings.ReplaceAll(uuid.New().String(), "-", "")
+		if err := conf.WriteConfig(bc, bc.ConfigPath); err != nil {
+			system.ErrPrintf("WriteConfig APISecret err[%s]", err)
+		}
+		return
+	}
+
+	if !isValidAPISecret(raw) {
+		newSecret := strings.ReplaceAll(uuid.New().String(), "-", "")
+		slog.Warn("api_secret 配置不符合语法要求，已重新生成并持久化到配置文件",
+			"reason", "必须由数字/大小写字母/下划线组成，最长32位",
+			"invalid_secret", raw,
+			"new_secret", newSecret,
+		)
+		bc.Server.HTTP.APISecret = newSecret
+		if err := conf.WriteConfig(bc, bc.ConfigPath); err != nil {
+			system.ErrPrintf("WriteConfig APISecret err[%s]", err)
 		}
 	}
 }
