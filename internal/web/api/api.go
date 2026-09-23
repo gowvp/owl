@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -235,6 +237,14 @@ func (uc *Usecase) proxySMS(c *gin.Context) {
 
 	path := c.Param("path")
 
+	// P0 白名单：禁止通过本反代访问 ZLM 管理 API（/index/api/*），仅放行 WebRTC 拉流
+	// 为什么: ZLM 的 HTTP 端口同时承载拉流路径和管理 API，合法观众持 playToken 可构造
+	// /proxy/sms/index/api/close_streams?app=X&stream=Y&token=T 越权调用管理接口
+	if err := checkProxyPathAllowed(c, path); err != nil {
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"code": 403, "msg": err.Error()})
+		return
+	}
+
 	// 播放流鉴权：校验 token 中的 app+stream 与请求路径的包含关系
 	if err := uc.verifyPlayToken(c, path); err != nil {
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"code": 403, "msg": err.Error()})
@@ -270,19 +280,21 @@ func (uc *Usecase) proxySMS(c *gin.Context) {
 				}
 			}
 		}
+		// P2：m3u8 响应重写，给切片 URL 拼上 token，使切片请求也受 playToken 约束
+		// 为什么: 原实现豁免 .mp4/.m4s/.ts 后缀，导致 HLS 切片无鉴权永久可拉，token 过期机制失效
+		if isM3U8Response(r) {
+			return rewriteM3U8WithToken(r, c.Query("token"))
+		}
 		return nil
 	}
 	proxy.ServeHTTP(c.Writer, c.Request)
 }
 
 // verifyPlayToken 校验播放 token：解析 JWT，确认 token 中的 app+stream 被请求路径包含
-// HLS 子片段（init.mp4、ts 切片等）由播放器自动请求且不带 token，予以豁免
+// HLS 切片 URL 已在 m3u8 重写阶段拼上 token，故所有请求均需携带 token
 func (uc *Usecase) verifyPlayToken(c *gin.Context, path string) error {
 	tokenStr := c.Query("token")
 	if tokenStr == "" {
-		if isHLSSegment(path) {
-			return nil
-		}
 		return fmt.Errorf("缺少播放鉴权 token")
 	}
 
@@ -302,25 +314,114 @@ func (uc *Usecase) verifyPlayToken(c *gin.Context, path string) error {
 		return fmt.Errorf("播放 token 缺少 stream 信息")
 	}
 
-	// 校验：path 中必须包含 stream（对于 webrtc 类请求，stream 在 query 参数中）
-	if strings.Contains(path, stream) {
-		return nil
+	// webrtc 的 path 是 /index/api/webrtc，stream 在 query 中，精确比对
+	if path == "/index/api/webrtc" {
+		if c.Query("stream") == stream && c.Query("app") == app {
+			return nil
+		}
+		return fmt.Errorf("播放 token 与请求流不匹配")
 	}
-	// webrtc 的 path 是 /index/api/webrtc，stream 在 query 中
-	if qStream := c.Query("stream"); qStream == stream && c.Query("app") == app {
+
+	// 精确匹配：按 path 段拆分，stream 独立成段或作为文件名前缀（FLV），app 若存在须精确等于首段
+	// 为什么: strings.Contains 匹配过宽，stream=live 时 /other/live2 也通过，可跨 app 越权
+	if matchStreamPath(path, app, stream) {
 		return nil
 	}
 
 	return fmt.Errorf("播放 token 与请求流不匹配")
 }
 
-// isHLSSegment 判断路径是否为 HLS 子片段资源（m3u8 播放列表引用的 init.mp4、ts 切片等）
-// 这些资源由播放器内部解析 m3u8 后自动请求，无法携带 query token，故豁免鉴权
-func isHLSSegment(path string) bool {
-	for _, suffix := range []string{".mp4", ".m4s", ".ts"} {
+// matchStreamPath 精确校验 path 中的 app/stream 与 token claims 一致
+// 兼容两种 driver 路径结构：
+//
+//	ZLM:    /{app}/{stream}.live.flv、/{app}/{stream}/hls.fmp4.m3u8、/{app}/{stream}/{date}/{seg}.mp4
+//	Lalmax: /{stream}.flv、/{stream}/hls.fmp4.m3u8、/{stream}/{seg}.m4s
+func matchStreamPath(path, app, stream string) bool {
+	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	if len(segments) == 0 {
+		return false
+	}
+
+	// 若 token 指定 app，首段必须精确等于 app（ZLM 结构）；否则首段即 stream 相关（Lalmax 结构）
+	streamSegIdx := 0
+	if app != "" {
+		if segments[0] != app {
+			return false
+		}
+		streamSegIdx = 1
+	}
+	if streamSegIdx >= len(segments) {
+		return false
+	}
+
+	streamSeg := segments[streamSegIdx]
+	// stream 独立成段（HLS m3u8 及切片路径），或作为文件名前缀带后缀（FLV：{stream}.live.flv、{stream}.flv）
+	return streamSeg == stream || strings.HasPrefix(streamSeg, stream+".")
+}
+
+// checkProxyPathAllowed 白名单：只放行明确的播放路径，其余一律拒绝
+// 覆盖 ZLM 与 Lalmax 两种 driver 的播放 URL 规则：
+//   - FLV: /{app}/{stream}.live.flv 或 /{stream}.flv
+//   - HLS: /{app}/{stream}/hls.fmp4.m3u8 或 /{stream}/hls.fmp4.m3u8，及切片 *.mp4/*.m4s/*.ts
+//   - WebRTC: /index/api/webrtc?type=play
+//
+// 为什么: 原黑名单只禁 /index/api/*，ZLM 自带录像下载 /record/* 及未来新增路径均被放行
+func checkProxyPathAllowed(c *gin.Context, path string) error {
+	// ZLM 自带录像下载路径，虽以 .mp4 结尾但非播放路径，明确拒绝
+	if strings.HasPrefix(path, "/record/") {
+		return fmt.Errorf("禁止访问录像下载路径")
+	}
+	// WebRTC 拉流信令特例
+	if path == "/index/api/webrtc" && c.Query("type") == "play" {
+		return nil
+	}
+	// 播放及切片路径按后缀放行
+	for _, suffix := range []string{".flv", ".ts", ".m3u8", ".mp4", ".m4s"} {
 		if strings.HasSuffix(path, suffix) {
-			return true
+			return nil
 		}
 	}
-	return false
+	return fmt.Errorf("路径不在播放白名单内")
+}
+
+// isM3U8Response 判断响应是否为 m3u8 播放列表
+func isM3U8Response(r *http.Response) bool {
+	ct := r.Header.Get("Content-Type")
+	return strings.Contains(ct, "application/vnd.apple.mpegurl") ||
+		strings.Contains(ct, "application/x-mpegurl") ||
+		strings.HasSuffix(r.Request.URL.Path, ".m3u8")
+}
+
+// rewriteM3U8WithToken 改写 m3u8 body，给每个切片 URL 拼上 token
+// m3u8 中以 # 开头的是标签行，其余为切片相对路径；播放器基于 m3u8 URL 解析相对路径时会丢弃原 query，
+// 故必须把 token 写进每行切片 URL，否则切片请求无法通过 verifyPlayToken
+func rewriteM3U8WithToken(r *http.Response, token string) error {
+	if token == "" {
+		return nil
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return err
+	}
+	r.Body.Close()
+
+	lines := strings.Split(string(body), "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimRight(line, "\r")
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		// 切片行：拼 token（已含 query 时用 & 连接）
+		sep := "?"
+		if strings.Contains(trimmed, "?") {
+			sep = "&"
+		}
+		lines[i] = trimmed + sep + "token=" + token
+	}
+	newBody := strings.Join(lines, "\n")
+
+	r.Body = io.NopCloser(strings.NewReader(newBody))
+	r.ContentLength = int64(len(newBody))
+	r.Header.Set("Content-Length", strconv.Itoa(len(newBody)))
+	return nil
 }
