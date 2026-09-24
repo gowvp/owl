@@ -349,17 +349,18 @@ func (w WebHookAPI) onRecordMP4(c *gin.Context, in *onRecordMP4Input) (DefaultOu
 	return newDefaultOutputOK(), nil
 }
 
-// relativeRecordingPath 从 ZLM 回调的绝对路径中截取以存储目录开头的相对路径。
+// relativeRecordingPath 从 ZLM 回调的绝对路径中截取相对于存储目录的纯相对路径。
 // 为什么按路径分隔符对齐匹配：子串匹配会误中 storageDir 为 "recordings" 时的
 // "/data/oldrecordings/x.mp4"，截出错误相对路径；取最右侧出现（LastIndex）
 // 以命中真实存储根；匹配不到时回退 fallback
+// 返回值不含 storageDir 前缀，如 "rtp/ch092wv/2026-09-24/a.mp4"
 func relativeRecordingPath(filePath, storageDir, fallback string) string {
 	sep := string(filepath.Separator)
 	if strings.HasPrefix(filePath, storageDir+sep) {
-		return filePath
+		return filePath[len(storageDir)+len(sep):]
 	}
 	if idx := strings.LastIndex(filePath, sep+storageDir+sep); idx >= 0 {
-		return filePath[idx+1:]
+		return filePath[idx+len(sep)+len(storageDir)+len(sep):]
 	}
 	return fallback
 }

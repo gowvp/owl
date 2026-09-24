@@ -3,6 +3,8 @@ package recording
 import (
 	"context"
 	"log/slog"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/ixugo/goddd/pkg/orm"
@@ -33,10 +35,22 @@ func (c Core) ListRecordings(ctx context.Context, in *FindRecordingInput) ([]*Re
 	if err != nil {
 		return nil, 0, reason.ErrDB.Withf(`Find in[%+v] err[%s]`, in, err.Error())
 	}
+	// 兼容旧数据：历史 Path 含 storageDir 前缀（如 configs/recordings/rtp/...），
+	// 拼接播放 URL 前须去除，否则与 /static/recordings 前缀重复致 404
+	prefix := ""
+	if c.conf != nil && c.conf.StorageDir != "" {
+		prefix = strings.TrimPrefix(filepath.Clean(c.conf.StorageDir), "./") + "/"
+	}
 	for _, item := range items {
+		if prefix != "" {
+			item.Path = strings.TrimPrefix(item.Path, prefix)
+		}
 		if ctx, ok := ctx.(web.Context); ok {
 			item.Path = ctx.BaseURLJoin("/static/recordings", item.Path)
 		}
+	}
+	if items == nil {
+		items = []*Recording{}
 	}
 	return items, total, nil
 }
