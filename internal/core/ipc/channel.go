@@ -39,6 +39,9 @@ func (c Core) ListChannels(ctx context.Context, in *FindChannelInput) ([]*Channe
 	if err != nil {
 		return nil, 0, reason.ErrDB.Withf(`List err[%s]`, err.Error())
 	}
+	if items == nil {
+		items = []*Channel{}
+	}
 	return items, total, nil
 }
 
@@ -96,7 +99,8 @@ func (c Core) CreateChannel(ctx context.Context, in *AddChannelInput) (*Channel,
 			IsOnline: true,
 			Channels: 1,
 
-			ID: c.uniqueID.UniqueID(getDevicePrefix(in.Type))}
+			ID: c.uniqueID.UniqueID(getDevicePrefix(in.Type)),
+		}
 		newDev.DeviceID = newDev.ID
 
 		if err := c.store.Device().Create(ctx, &newDev); err != nil {

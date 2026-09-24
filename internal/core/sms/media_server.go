@@ -33,6 +33,9 @@ func (c Core) ListMediaServers(ctx context.Context, in *FindMediaServerInput) ([
 			item.Status = value.IsOnline
 		}
 	}
+	if items == nil {
+		items = []*MediaServer{}
+	}
 	return items, total, nil
 }
 

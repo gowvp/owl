@@ -33,6 +33,9 @@ func (c Core) ListEvents(ctx context.Context, in *ListEventInput) ([]*Event, int
 			item.ImagePath = ctx.BaseURLJoin("/events/image/", item.ImagePath)
 		}
 	}
+	if items == nil {
+		items = []*Event{}
+	}
 	return items, total, nil
 }
 

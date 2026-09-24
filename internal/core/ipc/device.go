@@ -50,6 +50,9 @@ func (c Core) ListChannelsForDevice(ctx context.Context, in *FindDeviceInput) ([
 		}
 	}
 
+	if items == nil {
+		items = []*Device{}
+	}
 	return items, total, nil
 }
 
@@ -58,6 +61,9 @@ func (c Core) ListDevices(ctx context.Context, in *FindDeviceInput) ([]*Device, 
 	items, total, err := c.store.Device().List(ctx, in)
 	if err != nil {
 		return nil, 0, reason.ErrDB.Withf(`List err[%s]`, err.Error())
+	}
+	if items == nil {
+		items = []*Device{}
 	}
 	return items, total, nil
 }

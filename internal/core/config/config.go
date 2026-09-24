@@ -27,6 +27,9 @@ func (c Core) ListConfigs(ctx context.Context, in *FindConfigInput) ([]*Config, 
 	if err != nil {
 		return nil, 0, reason.ErrDB.Withf(`List err[%s]`, err.Error())
 	}
+	if items == nil {
+		items = []*Config{}
+	}
 	return items, total, nil
 }
 

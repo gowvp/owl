@@ -27,6 +27,9 @@ func (c *Core) ListStreamProxys(ctx context.Context, in *ListStreamProxyInput) (
 	if err != nil {
 		return nil, 0, reason.ErrDB.Withf("List err[%s]", err.Error())
 	}
+	if items == nil {
+		items = []*StreamProxy{}
+	}
 	return items, total, nil
 }
 
