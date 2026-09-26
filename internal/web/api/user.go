@@ -113,8 +113,9 @@ func (api UserAPI) login(_ *gin.Context, in *loginInput) (*loginOutput, error) {
 		return nil, reason.ErrServer.WithMsg(err.Error())
 	}
 	var credentials struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
+		Username  string `json:"username"`
+		Password  string `json:"password"`
+		AutoLogin bool   `json:"auto_login"`
 	}
 	if err := json.Unmarshal(body, &credentials); err != nil {
 		return nil, reason.ErrServer.WithMsg(err.Error())
@@ -131,7 +132,15 @@ func (api UserAPI) login(_ *gin.Context, in *loginInput) (*loginOutput, error) {
 
 	data := web.NewClaimsData().SetUsername(credentials.Username)
 
-	token, err := web.NewToken(data, api.conf.Server.HTTP.JwtSecret, web.WithExpiresAt(time.Now().Add(3*24*time.Hour)))
+	// 勾选短期自动登录时，token 有效期延长至第 15 天凌晨 5 点（服务端本地时区），
+	// 供前端免密自动登录使用；否则维持默认 3 天
+	expiresAt := time.Now().Add(3 * 24 * time.Hour)
+	if credentials.AutoLogin {
+		day15 := time.Now().Add(15 * 24 * time.Hour)
+		expiresAt = time.Date(day15.Year(), day15.Month(), day15.Day(), 5, 0, 0, 0, time.Local)
+	}
+
+	token, err := web.NewToken(data, api.conf.Server.HTTP.JwtSecret, web.WithExpiresAt(expiresAt))
 	if err != nil {
 		return nil, reason.ErrServer.WithMsg("生成token失败: " + err.Error())
 	}
