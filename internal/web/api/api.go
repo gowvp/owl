@@ -93,6 +93,11 @@ func setupRouter(r *gin.Engine, uc *Usecase) {
 	r.GET("/", func(ctx *gin.Context) {
 		ctx.Redirect(http.StatusPermanentRedirect, staticPrefix+"/"+"index.html")
 	})
+	// gin Static 对 /web（无尾斜杠）不会自动重定向，显式 301 到 /web/，
+	// 与 ZLM 的 public base URL 行为一致，避免相对路径资源解析错乱
+	r.GET(staticPrefix, func(ctx *gin.Context) {
+		ctx.Redirect(http.StatusPermanentRedirect, staticPrefix+"/")
+	})
 
 	auth := AuthMiddleware(uc.Conf.Server.HTTP.JwtSecret, uc.Conf.Server.HTTP.APISecret, uc.Conf.Server.HTTP.AuthURL, uc.Conf.Server.Username)
 	onvifserver.Register(r, uc.GB28181API.ipc, uc.SMSAPI.smsCore, uc.Conf)
