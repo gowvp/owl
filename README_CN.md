@@ -236,7 +236,8 @@ docker-compose.yml
 services:
   gowvp:
     # 如果拉不到 docker hub 镜像，也可以尝试
-    # registry.cn-shanghai.aliyuncs.com/ixugo/homenvr:latest
+    # pro: registry.cn-shanghai.aliyuncs.com/ixugo/owlpro:latest
+    # 开源: registry.cn-shanghai.aliyuncs.com/ixugo/homenvr:latest
     image: gospace/gowvp:latest
     restart: unless-stopped
     # network_mode 和 ports 二选一

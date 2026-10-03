@@ -192,7 +192,8 @@ docker-compose.yml
 services:
   gowvp:
     # If Docker Hub image is unavailable, try:
-    # registry.cn-shanghai.aliyuncs.com/ixugo/homenvr:latest
+    # pro: registry.cn-shanghai.aliyuncs.com/ixugo/owlpro:latest
+    # 开源: registry.cn-shanghai.aliyuncs.com/ixugo/homenvr:latest
     image: gospace/gowvp:latest
     restart: unless-stopped
     # For Linux, uncomment the line below and comment out all ports
