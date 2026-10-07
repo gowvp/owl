@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -103,7 +104,13 @@ func (d *ZLMDriver) Connect(ctx context.Context, ms *MediaServer) error {
 	return nil
 }
 
+// Setup 下发 ZLM 参数，并在拼接回调路径时保留基址中的启动密钥。
 func (d *ZLMDriver) Setup(ctx context.Context, ms *MediaServer, webhookURL string) error {
+	hookURL, err := url.Parse(webhookURL)
+	if err != nil {
+		// 解析错误包含完整 URL，返回固定提示，避免将回调密钥写入连接失败日志。
+		return fmt.Errorf("解析媒体回调地址失败，请检查回调主机配置")
+	}
 	engine := d.withConfig(ms)
 
 	// 拼接 IP 但是不要空格
@@ -142,19 +149,19 @@ func (d *ZLMDriver) Setup(ctx context.Context, ms *MediaServer, webhookURL strin
 		ProtocolEnableHlsFmp4: new("1"),
 		RtmpEnhanced:          new("1"),
 
-		HookOnPlay:                     new(fmt.Sprintf("%s/on_play", webhookURL)),
-		HookOnPublish:                  new(fmt.Sprintf("%s/on_publish", webhookURL)),
-		HookOnStreamNoneReader:         new(fmt.Sprintf("%s/on_stream_none_reader", webhookURL)),
+		HookOnPlay:                     new(hookURL.JoinPath("on_play").String()),
+		HookOnPublish:                  new(hookURL.JoinPath("on_publish").String()),
+		HookOnStreamNoneReader:         new(hookURL.JoinPath("on_stream_none_reader").String()),
 		GeneralStreamNoneReaderDelayMS: new("30000"),
-		HookOnStreamNotFound:           new(fmt.Sprintf("%s/on_stream_not_found", webhookURL)),
+		HookOnStreamNotFound:           new(hookURL.JoinPath("on_stream_not_found").String()),
 		HookOnRecordTs:                 new(""),
-		HookOnRecordMp4:                new(fmt.Sprintf("%s/on_record_mp4", webhookURL)),
+		HookOnRecordMp4:                new(hookURL.JoinPath("on_record_mp4").String()),
 		HookOnRtspAuth:                 new(""),
 		HookOnRtspRealm:                new(""),
 		HookOnShellLogin:               new(""),
-		HookOnStreamChanged:            new(fmt.Sprintf("%s/on_stream_changed", webhookURL)),
-		HookOnServerKeepalive:          new(fmt.Sprintf("%s/on_server_keepalive", webhookURL)),
-		HookOnServerStarted:            new(fmt.Sprintf("%s/on_server_started", webhookURL)),
+		HookOnStreamChanged:            new(hookURL.JoinPath("on_stream_changed").String()),
+		HookOnServerKeepalive:          new(hookURL.JoinPath("on_server_keepalive").String()),
+		HookOnServerStarted:            new(hookURL.JoinPath("on_server_started").String()),
 		HookTimeoutSec:                 new("10"),
 		HookAliveInterval:              new(fmt.Sprint(ms.HookAliveInterval)),
 		ProtocolContinuePushMs:         new("3000"),

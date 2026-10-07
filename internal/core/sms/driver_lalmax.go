@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -141,8 +142,13 @@ func (l *LalmaxDriver) Protocol() string {
 	return ProtocolLalmax
 }
 
-// Setup implements Driver.
+// Setup 下发 LAL 配置，并保留共用回调路由所需的启动密钥。
 func (l *LalmaxDriver) Setup(ctx context.Context, ms *MediaServer, webhookURL string) error {
+	hookURL, err := url.Parse(webhookURL)
+	if err != nil {
+		// 解析错误包含完整 URL，返回固定提示，避免将回调密钥写入连接失败日志。
+		return fmt.Errorf("解析媒体回调地址失败，请检查回调主机配置")
+	}
 	engine := l.withConfig(ms)
 
 	ports := strings.Split(ms.RTPPortRange, "-")
@@ -154,11 +160,11 @@ func (l *LalmaxDriver) Setup(ctx context.Context, ms *MediaServer, webhookURL st
 	if err := engine.SetHttpNotifyConfig(ctx, lalmax.HttpNotifyConfig{
 		Enable:               true,
 		KeepaliveIntervalSec: ms.HookAliveInterval,
-		OnKeepalive:          fmt.Sprintf("%s/on_server_keepalive", webhookURL),
+		OnKeepalive:          hookURL.JoinPath("on_server_keepalive").String(),
 		// OnPubStart:              webhookURL,
 		// OnPubStop:               webhookURL,
-		OnSubStartWithoutStream: fmt.Sprintf("%s/on_stream_not_found", webhookURL),
-		OnStreamChanged:         fmt.Sprintf("%s/on_stream_changed", webhookURL),
+		OnSubStartWithoutStream: hookURL.JoinPath("on_stream_not_found").String(),
+		OnStreamChanged:         hookURL.JoinPath("on_stream_changed").String(),
 		ClientSize:              50,
 	}, lalmax.MediaConfig{
 		ListenPort:            minPort,

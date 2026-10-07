@@ -19,6 +19,12 @@ import (
 
 const KeepaliveInterval = 2 * 15 * time.Second
 
+// WebhookSecretLength 是启动时生成的媒体回调密钥长度。
+const WebhookSecretLength = 6
+
+// WebhookSecretParam 是媒体回调地址携带随机密钥的查询参数名。
+const WebhookSecretParam = "owl_secret"
+
 type WarpMediaServer struct {
 	IsOnline      bool
 	LastUpdatedAt time.Time
@@ -28,21 +34,37 @@ type WarpMediaServer struct {
 type NodeManager struct {
 	storer Storer
 
-	drivers      map[string]Driver
-	cacheServers conc.Map[string, *WarpMediaServer]
-	quit         chan struct{}
+	drivers       map[string]Driver
+	cacheServers  conc.Map[string, *WarpMediaServer]
+	quit          chan struct{}
+	webhookSecret string
 }
 
+// NewNodeManager 启动节点管理并生成本次运行共用的回调密钥，重连时保持不变。
 func NewNodeManager(storer Storer) *NodeManager {
 	n := NodeManager{
-		storer:  storer,
-		drivers: make(map[string]Driver),
-		quit:    make(chan struct{}, 1),
+		storer:        storer,
+		drivers:       make(map[string]Driver),
+		quit:          make(chan struct{}, 1),
+		webhookSecret: orm.GenerateRandomString(WebhookSecretLength),
 	}
 	n.RegisterDriver(ProtocolZLMediaKit, NewZLMDriver())
 	n.RegisterDriver(ProtocolLalmax, NewLalmaxDriver())
 	go n.tickCheck()
 	return &n
+}
+
+// WebhookSecret 返回本次运行的回调密钥，未初始化时返回空值以便认证拒绝请求。
+func (n *NodeManager) WebhookSecret() string {
+	if n == nil {
+		return ""
+	}
+	return n.webhookSecret
+}
+
+// webhookURL 构造带启动密钥的回调基址，所有媒体节点配置共用同一个值。
+func (n *NodeManager) webhookURL(server *MediaServer, serverPort int) string {
+	return fmt.Sprintf("http://%s:%d/webhook?%s=%s", server.HookIP, serverPort, WebhookSecretParam, n.webhookSecret)
 }
 
 func (n *NodeManager) RegisterDriver(name string, driver Driver) {
@@ -187,6 +209,7 @@ func (n *NodeManager) Run(bc *conf.Bootstrap, serverPort int) error {
 	return nil
 }
 
+// connection 连接媒体节点并下发包含本次运行密钥的回调配置。
 func (n *NodeManager) connection(server *MediaServer, serverPort int) error {
 	n.cacheServers.Store(server.ID, &WarpMediaServer{
 		LastUpdatedAt: time.Now(),
@@ -219,7 +242,7 @@ func (n *NodeManager) connection(server *MediaServer, serverPort int) error {
 	}
 
 	log.Info("MediaServer 配置设置...")
-	hookPrefix := fmt.Sprintf("http://%s:%d/webhook", server.HookIP, serverPort)
+	hookPrefix := n.webhookURL(server, serverPort)
 	if err := driver.Setup(ctx, server, hookPrefix); err != nil {
 		log.Error("MediaServer 配置设置失败", "err", err)
 		return err

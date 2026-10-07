@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
 	"log/slog"
 	"net/url"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	"github.com/gowvp/owl/internal/core/sms"
 	"github.com/gowvp/owl/pkg/gbs"
 	"github.com/ixugo/goddd/pkg/orm"
+	"github.com/ixugo/goddd/pkg/reason"
 	"github.com/ixugo/goddd/pkg/web"
 )
 
@@ -45,9 +47,29 @@ func NewWebHookAPI(core sms.Core, conf *conf.Bootstrap, gbs *gbs.Server, ipcBund
 	}
 }
 
+// zlmWebhookAuth 在处理回调请求前验证唯一的 owl_secret 参数，缺失或错误时直接拒绝。
+func zlmWebhookAuth(secret string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		values := c.QueryArray(sms.WebhookSecretParam)
+		// 请求日志在处理结束后读取 URL，校验前移除密钥，避免将有效值写入日志。
+		query := c.Request.URL.Query()
+		query.Del(sms.WebhookSecretParam)
+		c.Request.URL.RawQuery = query.Encode()
+		c.Request.RequestURI = c.Request.URL.RequestURI()
+		if len(secret) != sms.WebhookSecretLength || len(values) != 1 ||
+			len(values[0]) != sms.WebhookSecretLength || subtle.ConstantTimeCompare([]byte(values[0]), []byte(secret)) != 1 {
+			web.AbortWithStatusJSON(c, reason.ErrUnauthorized)
+			return
+		}
+		c.Next()
+	}
+}
+
+// registerZLMWebhookAPI 保护媒体回调路由，事件接收入口继续使用其独立的密钥认证。
 func registerZLMWebhookAPI(r gin.IRouter, api WebHookAPI, handler ...gin.HandlerFunc) {
 	{
-		group := r.Group("/webhook", handler...)
+		protected := append([]gin.HandlerFunc{zlmWebhookAuth(api.smsCore.WebhookSecret())}, handler...)
+		group := r.Group("/webhook", protected...)
 		group.POST("/on_server_started", web.WrapH(api.onServerStarted))
 		group.POST("/on_server_keepalive", web.WrapH(api.onServerKeepalive))
 		group.POST("/on_stream_changed", web.WrapH(api.onStreamChanged))
@@ -58,7 +80,7 @@ func registerZLMWebhookAPI(r gin.IRouter, api WebHookAPI, handler ...gin.Handler
 		group.POST("/on_stream_not_found", web.WrapH(api.onStreamNotFound))
 		group.POST("/on_record_mp4", web.WrapH(api.onRecordMP4))
 		// 统一事件接收入口：兼容 Python AI 推送和 gowvp 间转发
-		group.POST("/events", api.onWebhookEvents)
+		r.Group("/webhook", handler...).POST("/events", api.onWebhookEvents)
 	}
 }
 

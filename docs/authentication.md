@@ -4,6 +4,8 @@
 
 登录成功响应保留 `token`、`user`，并新增布尔字段 `reset_account`。仅当成功登录的用户名和密码均为 `admin` 时为 `true`，其余成功登录为 `false`。Web 客户端收到 `true` 后先进入桌面，再要求通过三个输入框修改账号密码，调用现有加密 `PUT /users` 接口，旧密码传 `admin`；保存成功后退出旧会话并重新登录。该标记用于前端流程，不是服务端接口权限门禁。
 
+媒体回调 `/webhook/on_*` 使用启动时通过 `orm.GenerateRandomString(6)` 生成的六位随机值认证。自动下发的 ZLM/LAL 回调 URL 携带 `?owl_secret=xxxxxx`，缺失或不匹配时返回 401；重复参数也会拒绝。该值只保存在内存中，同一次运行内保持不变，重启后重新生成并随回调配置下发。`/webhook/events` 继续使用自己的 AISecret/RecvSecret 认证，不使用 `owl_secret`。
+
 ---
 
 ## 1. 鉴权方案概览
