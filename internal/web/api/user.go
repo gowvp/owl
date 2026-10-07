@@ -21,6 +21,7 @@ import (
 type UserAPI struct {
 	conf   *conf.Bootstrap
 	secret *Secret
+	guard  *loginGuard
 }
 
 type Secret struct {
@@ -78,16 +79,20 @@ func (s *Secret) Decrypt(ciphertext string) ([]byte, error) {
 	return plaintext, nil
 }
 
+// NewUserAPI 创建独立的登录防护状态，值复制时仍共享同一账号的失败记录。
 func NewUserAPI(conf *conf.Bootstrap) UserAPI {
 	return UserAPI{
 		conf:   conf,
 		secret: &Secret{},
+		guard:  &loginGuard{now: time.Now},
 	}
 }
 
+// RegisterUser 在登录绑定前检查账号锁定，并限制公开密钥接口的请求数量。
 func RegisterUser(r gin.IRouter, api UserAPI, mid ...gin.HandlerFunc) {
-	r.POST("/login", web.WrapH(api.login))
-	r.GET("/login/key", web.WrapH(api.getPublicKey))
+	r.POST("/login", api.guard.middleware, web.WrapH(api.login))
+	r.GET("/login/key", web.RateLimiter(loginKeyRequestsPerMinute/60.0, loginKeyRequestsPerMinute),
+		newLoginKeyWindow(time.Now), web.WrapH(api.getPublicKey))
 
 	group := r.Group("/users", mid...)
 	group.PUT("", web.WrapHs(api.updateCredentials, mid...)...)
@@ -106,7 +111,7 @@ type loginOutput struct {
 	User  string `json:"user"`
 }
 
-// 登录接口
+// login 校验加密凭据并签发令牌，任一配置凭据为空时拒绝登录，避免恢复默认密码。
 func (api UserAPI) login(_ *gin.Context, in *loginInput) (*loginOutput, error) {
 	body, err := api.secret.Decrypt(in.Data)
 	if err != nil {
@@ -122,11 +127,8 @@ func (api UserAPI) login(_ *gin.Context, in *loginInput) (*loginOutput, error) {
 	}
 
 	// 验证用户名和密码
-	if api.conf.Server.Username == "" && api.conf.Server.Password == "" {
-		api.conf.Server.Username = "admin"
-		api.conf.Server.Password = "admin"
-	}
-	if credentials.Username != api.conf.Server.Username || credentials.Password != api.conf.Server.Password {
+	if api.conf.Server.Username == "" || api.conf.Server.Password == "" ||
+		credentials.Username != api.conf.Server.Username || credentials.Password != api.conf.Server.Password {
 		return nil, reason.ErrNameOrPasswd
 	}
 
