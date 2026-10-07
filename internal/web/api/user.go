@@ -107,8 +107,9 @@ type loginInput struct {
 
 // 登录响应结构体
 type loginOutput struct {
-	Token string `json:"token"`
-	User  string `json:"user"`
+	Token        string `json:"token"`
+	User         string `json:"user"`
+	ResetAccount bool   `json:"reset_account"`
 }
 
 // login 校验加密凭据并签发令牌，任一配置凭据为空时拒绝登录，避免恢复默认密码。
@@ -148,8 +149,9 @@ func (api UserAPI) login(_ *gin.Context, in *loginInput) (*loginOutput, error) {
 	}
 
 	return &loginOutput{
-		Token: token,
-		User:  credentials.Username,
+		Token:        token,
+		User:         credentials.Username,
+		ResetAccount: credentials.Username == "admin" && credentials.Password == "admin",
 	}, nil
 }
 
