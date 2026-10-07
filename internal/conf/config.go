@@ -15,6 +15,13 @@ type Bootstrap struct {
 	Log    Log    // 日志
 	Sip    SIP
 	Media  Media // 媒体
+	ONVIF  ONVIF // 对外提供的 ONVIF 服务，凭据独立于网页登录
+}
+
+// ONVIF 保存本机 ONVIF 服务的独立凭据，供 HA、NVR 等客户端连接。
+type ONVIF struct {
+	Username string `comment:"ONVIF 用户名，未定义或为空时填充 admin"`
+	Password string `comment:"ONVIF 密码，未定义或为空时生成 10 位随机数字并保存；修改后重启生效"`
 }
 
 type Server struct {

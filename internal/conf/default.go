@@ -8,8 +8,10 @@ import (
 	"github.com/ixugo/goddd/pkg/orm"
 )
 
+// DefaultConfig 构造新安装配置，ONVIF 使用独立随机密码，避免继承网页登录的默认密码。
 func DefaultConfig() Bootstrap {
 	return Bootstrap{
+		ONVIF: ONVIF{Username: "admin", Password: randomONVIFPassword()},
 		Server: Server{
 			Username:   "admin",
 			Password:   "admin",

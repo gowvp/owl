@@ -20,7 +20,11 @@ import (
 	"github.com/ixugo/goddd/pkg/system"
 )
 
+// Run 初始化启动配置和服务，ONVIF 凭据必须先保存成功，避免服务使用无法恢复的随机密码。
 func Run(bc *conf.Bootstrap) {
+	if err := bc.InitONVIF(); err != nil {
+		panic(err)
+	}
 	if bc.Server.Recording.DiskUsageThreshold <= 0 {
 		bc.Server.Recording.DiskUsageThreshold = 95.0
 	}

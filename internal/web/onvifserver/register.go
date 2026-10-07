@@ -12,7 +12,7 @@ import (
 	"github.com/gowvp/owl/internal/core/sms"
 )
 
-// Register 将 ONVIF Device/Media SOAP 服务挂到 Gin，路径前缀 /onvif/，不经过鉴权。
+// Register 注册 ONVIF SOAP 端点和发现服务，由独立 ONVIF 凭据认证，不经过 Web JWT 鉴权。
 func Register(g gin.IRouter, ipcCore ipc.Core, smsCore sms.Core, cfg *conf.Bootstrap) {
 	provider := NewStreamProvider(ipcCore, smsCore, cfg)
 	serial := cfg.BuildVersion
@@ -20,16 +20,7 @@ func Register(g gin.IRouter, ipcCore ipc.Core, smsCore sms.Core, cfg *conf.Boots
 		serial = "gowvp-owl"
 	}
 	advHost := advertiseHost(cfg)
-	srv := server.New(server.Config{
-		Manufacturer:  "gowvp",
-		Model:         "owl",
-		Version:       cfg.BuildVersion,
-		SerialNumber:  serial,
-		ScopeName:     "owl",
-		Username:      cfg.Server.Username,
-		Password:      cfg.Server.Password,
-		AdvertiseHost: advHost,
-	}, provider)
+	srv := newSOAPServer(cfg, provider, serial, advHost)
 	// 仅注册 SOAP 端点，避免与 /onvif/discover 等 REST 路由冲突。
 	h := gin.WrapH(srv.Handler())
 	g.Any("/onvif/device_service", h)
@@ -40,6 +31,20 @@ func Register(g gin.IRouter, ipcCore ipc.Core, smsCore sms.Core, cfg *conf.Boots
 	})
 
 	startDiscovery(cfg, serial, advHost)
+}
+
+// newSOAPServer 构建使用独立 ONVIF 凭据的 SOAP 服务，网页登录密码不参与认证。
+func newSOAPServer(cfg *conf.Bootstrap, provider server.StreamProvider, serial, advHost string) *server.Server {
+	return server.New(server.Config{
+		Manufacturer:  "gowvp",
+		Model:         "owl",
+		Version:       cfg.BuildVersion,
+		SerialNumber:  serial,
+		ScopeName:     "owl",
+		Username:      cfg.ONVIF.Username,
+		Password:      cfg.ONVIF.Password,
+		AdvertiseHost: advHost,
+	}, provider)
 }
 
 // startDiscovery 启动 WS-Discovery，供 HA 等客户端在局域网自动发现本机 ONVIF 设备。
