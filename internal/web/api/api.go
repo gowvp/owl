@@ -51,6 +51,7 @@ func setupRouter(r *gin.Engine, uc *Usecase) {
 		),
 		web.LoggerWithBody(
 			web.DefaultBodyLimit,
+			web.IgnorePrefix("/webhook/on_publish", "/webhook/on_play", "/webhook/on_stream_changed"), // 回调体可能含预览内部密钥
 			web.IgnoreBool(uc.Conf.Debug),
 			web.IgnoreMethod(http.MethodOptions),
 			web.IgnorePrefix("/events/image"),
@@ -256,6 +257,13 @@ func (uc *Usecase) proxySMS(c *gin.Context) {
 		return
 	}
 
+	// 转码只改变 ZLM 供给的流，播放权限仍按上面的原通道 token 校验。
+	previewStream, previewKey, err := uc.preparePreview(c, path)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusBadGateway, gin.H{"code": -1, "msg": err.Error()})
+		return
+	}
+
 	rc := http.NewResponseController(c.Writer)
 	exp := time.Now().AddDate(99, 0, 0)
 	_ = rc.SetReadDeadline(exp)
@@ -274,6 +282,13 @@ func (uc *Usecase) proxySMS(c *gin.Context) {
 		req.URL.Scheme = "http"
 		req.URL.Host = fmt.Sprintf("%s:%d", uc.Conf.Media.IP, uc.Conf.Media.HTTPPort)
 		req.URL.Path = path
+		if previewStream != "" {
+			query := req.URL.Query()
+			query.Set("app", previewApp)
+			query.Set("stream", previewStream)
+			query.Set(previewKeyParam, previewKey)
+			req.URL.RawQuery = query.Encode()
+		}
 	}
 	proxy.ModifyResponse = func(r *http.Response) error {
 		r.Header.Del("Access-Control-Allow-Credentials")
