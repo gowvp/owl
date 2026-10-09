@@ -117,6 +117,11 @@
   RTPPortRange = '20000-20100'
   # 媒体服务器 SDP IP
   SDPIP = '192.168.31.10'
+  # WebRTC H265 源流按需转 H264，以下选项修改后重启生效
+  PreviewDisabled = false
+  PreviewFFmpeg = 'ffmpeg'
+  PreviewIdleSeconds = 30
+  PreviewMaxConcurrent = 3
 
 # 对外提供的 ONVIF 服务，账号密码独立于网页登录；修改后重启生效
 [ONVIF]

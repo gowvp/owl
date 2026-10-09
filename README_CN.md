@@ -37,6 +37,27 @@
 + 支持 Docker, Docker Compose, Kubernetes 部署
 
 
+## 按需转码预览
+
+默认 ZLMediaKit 节点的 WebRTC 预览支持服务端按需转码。Owl 校验原通道播放 token 后，读取浏览器 SDP 和源流编码：源流为 H.265、浏览器提供 H.264 但未提供 H.265 时，才启动 FFmpeg，将预览转为 H.264 Baseline + Opus。源流为 H.264，或浏览器支持 H.265 时直接播放原流；无需修改前端或摄像头编码。
+
+同一摄像头的多个观众共享一个转码进程。Owl 每 5 秒检测 ZLM 实际观看人数，无人观看约 30 秒后终止并回收进程；ICE 失败、页面崩溃和请求取消也通过这一机制回收。启动失败释放通道名额，正常退出 Owl 时会终止所有转码进程。首次预览需要等待源流和转码流就绪，浏览器若提前超时可重试。
+
+转码流使用保留应用名 `owl_preview` 和任务专属内部密钥，禁止用于自定义摄像头通道。转码流不录制，也不进入原通道的录像/AI 回调处理；原始录像仍使用摄像头原编码。
+
+在 `configs/config.toml` 的现有 `[Media]` 段内添加以下选项，修改后重启 Owl：
+
+```toml
+PreviewDisabled = false
+PreviewFFmpeg = 'ffmpeg'
+PreviewIdleSeconds = 30
+PreviewMaxConcurrent = 3
+```
+
+旧配置没有这些字段时，同样默认启用，空 FFmpeg 路径使用 `PATH` 中的 `ffmpeg`，空闲时间/并发上限为 0 时分别采用 30 秒/3 个通道。需要可执行的 FFmpeg，包含 `libx264`、`libopus` 编码器，且 Owl 能访问 ZLM 的 RTSP 和 HTTP API 端口。已有 ZLM Docker 镜像安装 FFmpeg；自行运行二进制时需另行安装。
+
+当前使用 CPU 软件转码，每路最多 2 个编码线程；`PreviewMaxConcurrent` 限制同时转码的摄像头数量，不限制同一路的观众数量。实际 CPU 消耗取决于分辨率和帧率，上限按服务器性能调整。此功能仅处理默认 ZLM 节点的实时 WebRTC 预览，其他播放协议、回放、Lalmax 和远程节点保持原有行为。
+
 ## 开源库
 
 感谢 @panjjo 大佬的开源库 [panjjo/gosip](https://github.com/panjjo/gosip)，GoWVP 的 sip 信令基于此库，出于底层封装需要，并非直接依赖该项目，而是源代码放到了 pkg 包中。

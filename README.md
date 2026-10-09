@@ -32,6 +32,27 @@ GoWVP is an open-source GB28181 solution implemented in Go, a network video plat
 + Cross-network video preview
 + Deployment via Docker, Docker Compose, or Kubernetes
 
+## On-demand preview transcoding
+
+WebRTC previews on the default ZLMediaKit node can transcode on demand. After validating the original channel's play token, Owl checks the browser SDP and source codec. FFmpeg starts only for an H.265 source when the browser offers H.264 without H.265, producing H.264 Baseline video and Opus audio. H.264 sources and H.265-capable browsers use the original stream. No frontend or camera codec changes are required.
+
+Viewers of the same camera share one process. Owl checks ZLM's actual reader count every 5 seconds and stops/reaps the process after approximately 30 seconds without viewers, including failed ICE connections and abandoned requests. Startup failures release their slots, and graceful Owl shutdown stops all transcoders. Initial playback waits for the source and transcoder to become ready; retry if the browser times out early.
+
+Derived streams use the reserved `owl_preview` app with a per-job internal key. Do not use this app for camera channels. These streams are excluded from recording and original-channel recording/AI callbacks; original recordings retain the camera's codec.
+
+Add the following options to the existing `[Media]` section of `configs/config.toml`, then restart Owl:
+
+```toml
+PreviewDisabled = false
+PreviewFFmpeg = 'ffmpeg'
+PreviewIdleSeconds = 30
+PreviewMaxConcurrent = 3
+```
+
+Omitted fields enable the feature with the same defaults. An empty binary path resolves `ffmpeg` from `PATH`; zero idle/concurrency settings mean 30 seconds/3 cameras. FFmpeg must provide `libx264` and `libopus`, and Owl must reach ZLM's RTSP and HTTP API ports. The existing ZLM Docker image includes FFmpeg; standalone binaries need it installed separately.
+
+Transcoding uses software encoding with up to 2 encoder threads per camera. The concurrency limit counts cameras, not viewers; adjust it to the server's CPU capacity and source resolution/frame rate. This feature handles live WebRTC previews on the default ZLM node; other protocols, recordings, Lalmax and remote nodes retain existing behavior.
+
 ## Open Source Libraries
 
 Thanks to @panjjo for the open-source library [panjjo/gosip](https://github.com/panjjo/gosip). GoWVP's SIP signaling is based on this library. Due to underlying encapsulation requirements, it's not a direct dependency but rather included in the pkg package.

@@ -117,6 +117,16 @@ func (w WebHookAPI) onServerKeepalive(_ *gin.Context, in *onServerKeepaliveInput
 // onPublish rtsp/rtmp/rtp 推流鉴权事件。
 // https://docs.zlmediakit.com/zh/guide/media_server/web_hook_api.html#_7%E3%80%81on-publish
 func (w WebHookAPI) onPublish(c *gin.Context, in *onPublishInput) (*onPublishOutput, error) {
+	if in.App == previewApp {
+		if w.uc == nil || !w.uc.preview.authorized(in.MediaServerID, in.Stream, in.Params) {
+			return &onPublishOutput{DefaultOutput: DefaultOutput{Code: 1, Msg: "预览推流鉴权失败"}}, nil
+		}
+		// 只发布 RTSP 预览流；原流继续负责录像和 AI，避免重复录像。
+		yes, no := true, false
+		return &onPublishOutput{DefaultOutput: newDefaultOutputOK(), EnableAudio: &yes, EnableRtsp: &yes,
+			EnableMp4: &no, EnableHls: &no, EnableHlsFmp4: &no, EnableRtmp: &no,
+			EnableTs: &no, EnableFmp4: &no, Mp4AsPlayer: &no, AutoClose: &no}, nil
+	}
 	ctx := c.Request.Context()
 	w.log.Info("webhook onPublish", "app", in.App, "stream", in.Stream, "schema", in.Schema, "mediaServerID", in.MediaServerID)
 
@@ -176,6 +186,9 @@ func (w WebHookAPI) onStreamChanged(c *gin.Context, in *onStreamChangedInput) (D
 		stream = in.StreamName
 		app = in.AppName
 	}
+	if app == previewApp {
+		return newDefaultOutputOK(), nil
+	}
 
 	// 通过 app+stream 查询通道获取类型，支持自定义 app/stream
 	channelType := w.getChannelType(ctx, app, stream)
@@ -223,6 +236,12 @@ func (w WebHookAPI) onStreamChanged(c *gin.Context, in *onStreamChangedInput) (D
 // 播放rtsp流时，如果该流开启了rtsp专用认证（on_rtsp_realm），则不会触发on_play事件。
 // https://docs.zlmediakit.com/guide/media_server/web_hook_api.html#_6-on-play
 func (w WebHookAPI) onPlay(c *gin.Context, in *onPublishInput) (DefaultOutput, error) {
+	if in.App == previewApp {
+		if w.uc == nil || !w.uc.preview.authorized(in.MediaServerID, in.Stream, in.Params) {
+			return DefaultOutput{Code: 1, Msg: "预览播放鉴权失败"}, nil
+		}
+		return newDefaultOutputOK(), nil
+	}
 	ctx := c.Request.Context()
 	w.log.InfoContext(ctx, "webhook onPlay", "app", in.App, "stream", in.Stream, "schema", in.Schema)
 
@@ -242,6 +261,10 @@ func (w WebHookAPI) onPlay(c *gin.Context, in *onPublishInput) (DefaultOutput, e
 // 但是 rtsp/rtmp/rtp 转推算观看人数，也会触发该事件。
 // https://docs.zlmediakit.com/zh/guide/media_server/web_hook_api.html#_12%E3%80%81on-stream-changed
 func (w WebHookAPI) onStreamNoneReader(c *gin.Context, in *onStreamNoneReaderInput) (onStreamNoneReaderOutput, error) {
+	if in.App == previewApp {
+		// 由转码管理器等待空闲宽限期后回收，避免预览刚注册就被关闭。
+		return onStreamNoneReaderOutput{Close: w.uc == nil || !w.uc.preview.managed(in.MediaServerID, in.Stream)}, nil
+	}
 	ctx := c.Request.Context()
 	w.log.InfoContext(ctx, "webhook onStreamNoneReader", "app", in.App, "stream", in.Stream, "mediaServerID", in.MediaServerID)
 
@@ -303,6 +326,9 @@ func (w WebHookAPI) onStreamNotFound(c *gin.Context, in *onStreamNotFoundInput) 
 		}
 	}
 
+	if app == previewApp {
+		return newDefaultOutputOK(), nil
+	}
 	// 通过 app+stream 查询通道获取类型，支持自定义 app/stream
 	channelType := w.getChannelType(ctx, app, stream)
 	protocol, ok := w.protocols[channelType]
@@ -319,6 +345,9 @@ func (w WebHookAPI) onStreamNotFound(c *gin.Context, in *onStreamNotFoundInput) 
 // ZLM 在 MP4 切片完成时会触发此回调，将录像信息入库
 // https://docs.zlmediakit.com/zh/guide/media_server/web_hook_api.html#_8%E3%80%81on-record-mp4
 func (w WebHookAPI) onRecordMP4(c *gin.Context, in *onRecordMP4Input) (DefaultOutput, error) {
+	if in.App == previewApp {
+		return newDefaultOutputOK(), nil
+	}
 	ctx := c.Request.Context()
 	w.log.InfoContext(ctx, "webhook onRecordMP4",
 		"app", in.App,

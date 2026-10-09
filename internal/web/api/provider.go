@@ -57,6 +57,7 @@ var (
 )
 
 type Usecase struct {
+	preview    *previewManager `wire:"-"` // 由 HTTP handler 创建和关闭，不参与 Wire 注入
 	Conf       *conf.Bootstrap
 	DB         *gorm.DB
 	Version    versionapi.API
@@ -94,9 +95,10 @@ func NewHTTPHandler(uc *Usecase) http.Handler {
 		web.SetupPProf(g, &cfg.HTTP.PProf.AccessIps) // 设置 Pprof 监控
 	}
 
+	uc.preview = newPreviewManager(uc.Conf.Media)
 	setupRouter(g, uc) // 设置路由处理函数
 	uc.Version.RecordVersion()
-	return g // 返回配置好的 Gin 实例作为 http.Handler
+	return &previewHTTPHandler{Handler: g, preview: uc.preview}
 }
 
 // NewUniqueID 唯一 id 生成器
