@@ -180,6 +180,8 @@ func (m *previewManager) run(ctx context.Context, j *previewJob, ms *sms.MediaSe
 	cmd := m.command(ctx, bin, "-hide_banner", "-loglevel", "error", "-rtsp_transport", "tcp", "-i", source.String(),
 		"-map", "0:v:0", "-map", "0:a:0?", "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
 		"-pix_fmt", "yuv420p", "-profile:v", "baseline", "-threads", "2", "-g", "50", "-crf", "23",
+		// 高分辨率/噪声画面的无上限 CRF 会产生数 MB 关键帧，WebRTC 丢包后难以组帧。
+		"-maxrate", "4M", "-bufsize", "1M",
 		// 将 SPS/PPS 附在关键帧，避免 WebRTC 接收端因参数集仅在 RTSP SDP 中而无法解码。
 		"-bsf:v", "dump_extra=freq=keyframe",
 		"-c:a", "libopus", "-ar", "48000", "-ac", "1", "-f", "rtsp", "-rtsp_transport", "tcp", dest.String())

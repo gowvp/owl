@@ -51,7 +51,7 @@ PreviewMaxConcurrent = 3
 
 Omitted fields enable the feature with the same defaults. An empty binary path resolves `ffmpeg` from `PATH`; zero idle/concurrency settings mean 30 seconds/3 cameras. FFmpeg must provide `libx264` and `libopus`, and Owl must reach ZLM's RTSP and HTTP API ports. The existing ZLM Docker image includes FFmpeg; standalone binaries need it installed separately.
 
-Transcoding uses software encoding with up to 2 encoder threads per camera. The concurrency limit counts cameras, not viewers; adjust it to the server's CPU capacity and source resolution/frame rate. This feature handles live WebRTC previews on the default ZLM node; other protocols, recordings, Lalmax and remote nodes retain existing behavior.
+Transcoding uses software encoding with up to 2 encoder threads per camera. Preview video is bounded by a 4 Mbps VBV maximum rate and a 1 Mbit buffer to avoid oversized keyframe bursts; source resolution and original recordings remain unchanged. The concurrency limit counts cameras, not viewers; adjust it to the server's CPU capacity and source resolution/frame rate. This feature handles live WebRTC previews on the default ZLM node; other protocols, recordings, Lalmax and remote nodes retain existing behavior.
 
 ## Open Source Libraries
 
