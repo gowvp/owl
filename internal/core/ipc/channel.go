@@ -3,6 +3,7 @@ package ipc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -73,6 +74,10 @@ func (c Core) CreateChannel(ctx context.Context, in *AddChannelInput) (*Channel,
 	// 禁止 app=rtp，rtp 专用于 GB28181 协议
 	if strings.EqualFold(in.App, "rtp") {
 		return nil, reason.ErrBadRequest.WithMsg("app=rtp 为 GB28181 专用，RTMP/RTSP 不可使用")
+	}
+
+	if strings.EqualFold(in.App, PreviewApp) {
+		return nil, reason.ErrBadRequest.WithMsg("app=owl_preview 为预览保留应用名，RTMP/RTSP 不可使用")
 	}
 
 	var deviceID string
@@ -179,6 +184,10 @@ func (c Core) UpdateChannel(ctx context.Context, in *EditChannelInput, id string
 
 	out := Channel{ID: id}
 	if err := c.store.Channel().Update(ctx, &out, func(b *Channel) error {
+		// 允许历史通道保留原 app 编辑其他字段，也允许改名迁出；禁止新占用。
+		if strings.EqualFold(in.App, PreviewApp) && in.App != b.App {
+			return reason.ErrBadRequest.WithMsg("app=owl_preview 为预览保留应用名，RTMP/RTSP 不可使用")
+		}
 		if in.Name != "" {
 			b.Name = in.Name
 		}
@@ -197,6 +206,9 @@ func (c Core) UpdateChannel(ctx context.Context, in *EditChannelInput, id string
 		b.Config = mergeStreamConfig(b.Config, in.Config)
 		return nil
 	}); err != nil {
+		if errors.Is(err, reason.ErrBadRequest) {
+			return nil, err
+		}
 		return nil, reason.ErrDB.Withf(`Update err[%s]`, err.Error())
 	}
 	return &out, nil
