@@ -56,7 +56,7 @@ PreviewMaxConcurrent = 3
 
 旧配置没有这些字段时，同样默认启用，空 FFmpeg 路径使用 `PATH` 中的 `ffmpeg`，空闲时间/并发上限为 0 时分别采用 30 秒/3 个通道。需要可执行的 FFmpeg，包含 `libx264`、`libopus` 编码器，且 Owl 能访问 ZLM 的 RTSP 和 HTTP API 端口。已有 ZLM Docker 镜像安装 FFmpeg；自行运行二进制时需另行安装。
 
-当前使用 CPU 软件转码，每路最多 2 个编码线程；`PreviewMaxConcurrent` 限制同时转码的摄像头数量，不限制同一路的观众数量。实际 CPU 消耗取决于分辨率和帧率，上限按服务器性能调整。此功能仅处理默认 ZLM 节点的实时 WebRTC 预览，其他播放协议、回放、Lalmax 和远程节点保持原有行为。
+当前使用 CPU 软件转码，每路最多 2 个编码线程；预览视频采用 4 Mbps 的 VBV 最大码率和 1 Mbit 缓冲限制，避免大关键帧突发导致 WebRTC 黑屏，保持源分辨率和原始录像；`PreviewMaxConcurrent` 限制同时转码的摄像头数量，不限制同一路的观众数量。实际 CPU 消耗取决于分辨率和帧率，上限按服务器性能调整。此功能仅处理默认 ZLM 节点的实时 WebRTC 预览，其他播放协议、回放、Lalmax 和远程节点保持原有行为。
 
 ## 开源库
 

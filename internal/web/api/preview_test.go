@@ -403,10 +403,11 @@ func (previewRecorder) CloseNotify() <-chan bool { return make(chan bool) }
 
 func TestPreviewProxy(t *testing.T) {
 	for _, tt := range []struct {
-		name, source, offer         string
-		disabled, wantPreview, cold bool
+		name, source, offer               string
+		disabled, wantPreview, cold, rtsp bool
 	}{
 		{name: "H265 to H264", source: "H265", offer: "H264", wantPreview: true},
+		{name: "RTSP H265 source", source: "H265", offer: "H264", wantPreview: true, rtsp: true},
 		{name: "cold H265 source", source: "H265", offer: "H264", wantPreview: true, cold: true},
 		{name: "ZLM codec prefix", source: "CodecH265", offer: "H264", wantPreview: true},
 		{name: "H264 source", source: "H264", offer: "H264"},
@@ -444,6 +445,9 @@ func TestPreviewProxy(t *testing.T) {
 			uc.preview = m
 			uc.Conf.Media = conf.Media{IP: ms.IP, HTTPPort: ms.Ports.HTTP, PreviewDisabled: tt.disabled}
 			ch := &ipc.Channel{ID: "camera", Type: ipc.TypeGB28181}
+			if tt.rtsp {
+				ch.Type, ch.App, ch.Stream = ipc.TypeRTSP, "pull", "camera"
+			}
 			uc.GB28181API.ipc = ipc.NewCore(previewIPCStore{channel: ch}, uniqueid.Core{}, nil)
 			uc.WebHookAPI.protocols = map[string]ipc.Protocoler{ipc.TypeGB28181: previewProtocol{start: func() error { sourceStarts.Add(1); sourceReady.Store(true); return nil }}}
 			uc.SMSAPI.smsCore = sms.NewCore(previewSMSStore{server: ms})
@@ -451,7 +455,7 @@ func TestPreviewProxy(t *testing.T) {
 			r := gin.New()
 			r.Any("/proxy/sms/*path", uc.proxySMS)
 			sdp := "v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=rtpmap:96 " + tt.offer + "/90000\r\na=recvonly\r\n"
-			rawQuery := "app=rtp&stream=camera&type=play&token=" + makePlayToken(t, "rtp", "camera", time.Now().Add(time.Hour))
+			rawQuery := "app=" + ch.GetApp() + "&stream=camera&type=play&token=" + makePlayToken(t, ch.GetApp(), "camera", time.Now().Add(time.Hour))
 			rec := previewRecorder{httptest.NewRecorder()}
 			req := httptest.NewRequest(http.MethodPost, "/proxy/sms/index/api/webrtc?"+rawQuery, strings.NewReader(sdp))
 			r.ServeHTTP(rec, req)
@@ -483,7 +487,7 @@ func TestPreviewProxy(t *testing.T) {
 			}
 			// An unauthorized play must never resolve a source or start FFmpeg.
 			denied := httptest.NewRecorder()
-			r.ServeHTTP(denied, httptest.NewRequest(http.MethodPost, "/proxy/sms/index/api/webrtc?app=rtp&stream=camera&type=play", strings.NewReader(sdp)))
+			r.ServeHTTP(denied, httptest.NewRequest(http.MethodPost, "/proxy/sms/index/api/webrtc?app="+ch.GetApp()+"&stream=camera&type=play", strings.NewReader(sdp)))
 			if denied.Code != http.StatusForbidden {
 				t.Fatal("unauthorized playback accepted")
 			}
