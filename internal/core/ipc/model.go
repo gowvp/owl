@@ -16,6 +16,9 @@ const (
 	TypeRTMP    = "RTMP"
 )
 
+// PreviewApp 为内部转码保留；新通道不可占用，历史同名通道仍可改名迁出。
+const PreviewApp = "owl_preview"
+
 func GetType(stream string) string {
 	switch true {
 	case bz.IsGB28181(stream):

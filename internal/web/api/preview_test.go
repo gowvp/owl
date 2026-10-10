@@ -299,7 +299,7 @@ func TestPreviewHooks(t *testing.T) {
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
 	// Nil stores catch accidental original-channel/recording calls.
-	hook := WebHookAPI{uc: &Usecase{preview: m}, log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	hook := WebHookAPI{uc: &Usecase{Conf: &conf.Bootstrap{}, preview: m}, log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	for _, tt := range []struct {
 		name, server, params string
 		want                 int

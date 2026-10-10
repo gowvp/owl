@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -19,12 +20,14 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/gowvp/owl/internal/conf"
+	"github.com/gowvp/owl/internal/core/ipc"
 	"github.com/gowvp/owl/internal/core/sms"
 	"github.com/gowvp/owl/pkg/zlm"
+	"github.com/ixugo/goddd/pkg/web"
 )
 
 const (
-	previewApp      = "owl_preview"
+	previewApp      = ipc.PreviewApp
 	previewKeyParam = "owl_preview_key"
 )
 
@@ -58,6 +61,26 @@ type previewManager struct {
 	idle    time.Duration
 	limit   int
 	command func(context.Context, string, ...string) *exec.Cmd
+}
+
+// 不自动改名或接管历史通道；冲突或检查失败时保留原流程，重启后重新检查。
+func (uc *Usecase) initPreview() {
+	config := uc.Conf.Media
+	if !config.PreviewDisabled {
+		_, total, err := uc.GB28181API.ipc.ListChannels(context.Background(), &ipc.FindChannelInput{
+			PagerFilter: web.PagerFilter{Page: 1, Size: 1}, App: previewApp,
+		})
+		if err != nil || total > 0 {
+			config.PreviewDisabled = true
+			slog.Warn("未启用预览转码：保留 app 检查失败或已被通道占用，请检查或改名后重启",
+				"app", previewApp, "channels", total, "err", err)
+		}
+	}
+	uc.preview = newPreviewManager(config)
+}
+
+func (uc *Usecase) previewEnabled() bool {
+	return uc != nil && uc.preview != nil && !uc.Conf.Media.PreviewDisabled && !uc.preview.config.PreviewDisabled
 }
 
 func newPreviewManager(config conf.Media) *previewManager {
@@ -248,7 +271,8 @@ func (m *previewManager) sweep() {
 		}
 		m.mu.Lock()
 		if m.jobs[j.stream] == j && !j.stopping {
-			if readers > 0 {
+			// 查询失败表示观看人数未知，不能当成无人观看，也不能计入空闲时间。
+			if err != nil || readers > 0 {
 				j.lastUsed = time.Now()
 			} else if time.Since(j.lastUsed) >= m.idle {
 				j.stopping = true
@@ -335,7 +359,7 @@ func offeredVideoCodec(sdp, codec string) bool {
 
 // 在 proxySMS 校验原播放 token 后调用；返回仅供反代使用的流地址与内部密钥。
 func (uc *Usecase) preparePreview(c *gin.Context, path string) (string, string, error) {
-	if uc.preview == nil || uc.Conf.Media.PreviewDisabled || uc.Conf.Media.Type == sms.ProtocolLalmax ||
+	if !uc.previewEnabled() || uc.Conf.Media.Type == sms.ProtocolLalmax ||
 		path != "/index/api/webrtc" || c.Request.Method != http.MethodPost || c.Query("type") != "play" {
 		return "", "", nil
 	}
