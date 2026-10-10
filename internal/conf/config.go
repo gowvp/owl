@@ -128,13 +128,17 @@ func (s *SIP) GetDomain() string {
 }
 
 type Media struct {
-	IP           string `comment:"媒体服务器 IP"`
-	HTTPPort     int    `comment:"媒体服务器 HTTP 端口"`
-	Secret       string `comment:"媒体服务器密钥"`
-	Type         string `comment:"媒体服务器类型 zlm/lalmax"`
-	WebHookIP    string `comment:"用于流媒体 webhook 回调"`
-	RTPPortRange string `comment:"媒体服务器 RTP 端口范围"`
-	SDPIP        string `comment:"媒体服务器 SDP IP"`
+	IP                   string `comment:"媒体服务器 IP"`
+	HTTPPort             int    `comment:"媒体服务器 HTTP 端口"`
+	Secret               string `comment:"媒体服务器密钥"`
+	Type                 string `comment:"媒体服务器类型 zlm/lalmax"`
+	WebHookIP            string `comment:"用于流媒体 webhook 回调"`
+	RTPPortRange         string `comment:"媒体服务器 RTP 端口范围"`
+	SDPIP                string `comment:"媒体服务器 SDP IP"`
+	PreviewDisabled      bool   `comment:"禁用 WebRTC H265 按需转码预览"`
+	PreviewFFmpeg        string `comment:"预览转码 FFmpeg 路径，空值使用 ffmpeg"`
+	PreviewIdleSeconds   int    `comment:"预览无人观看后停止转码的秒数，0 使用 30"`
+	PreviewMaxConcurrent int    `comment:"同时转码的通道上限，0 使用 3"`
 }
 
 type Duration time.Duration

@@ -75,6 +75,10 @@ func Run(bc *conf.Bootstrap) {
 		panic(err)
 	}
 	defer cleanUp()
+	// 先回收预览子进程，再释放 Wire 创建的业务依赖。
+	if closer, ok := handler.(interface{ Close() }); ok {
+		defer closer.Close()
+	}
 
 	svc := server.New(handler,
 		server.Port(strconv.Itoa(bc.Server.HTTP.Port)),
