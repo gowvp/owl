@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -121,22 +122,24 @@ func TestLoginEmptyConfig(t *testing.T) {
 	}
 }
 
-// TestLoginKeyRateLimit 验证不同来源共用密钥接口的每分钟五次配额。
+// TestLoginKeyRateLimit verifies the shared bucket initially permits a burst of 20.
 func TestLoginKeyRateLimit(t *testing.T) {
-	_, r := newLoginTestAPI(t)
-	for i := range 6 {
-		w := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/login/key", nil)
-		req.RemoteAddr = fmt.Sprintf("192.0.2.%d:1234", i+1)
-		r.ServeHTTP(w, req)
-		want := http.StatusOK
-		if i == 5 {
-			want = http.StatusTooManyRequests
+	synctest.Test(t, func(t *testing.T) {
+		_, r := newLoginTestAPI(t)
+		for i := range 21 {
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/login/key", nil)
+			req.RemoteAddr = fmt.Sprintf("192.0.2.%d:1234", i+1)
+			r.ServeHTTP(w, req)
+			want := http.StatusOK
+			if i == 20 {
+				want = http.StatusTooManyRequests
+			}
+			if w.Code != want {
+				t.Fatalf("request %d expected %d got %d", i+1, want, w.Code)
+			}
 		}
-		if w.Code != want {
-			t.Fatalf("请求 %d: 期望 %d，实际 %d: %s", i+1, want, w.Code, w.Body.String())
-		}
-	}
+	})
 }
 
 // TestLoginLockEscalation 验证锁定边界、逐次升级、八小时封顶和成功登录清零。
@@ -195,32 +198,68 @@ func TestLoginConcurrentFailures(t *testing.T) {
 	}
 }
 
-// TestLoginKeyRollingWindow 验证窗口按实际通过时间滚动，不在整分钟边界额外放行。
-func TestLoginKeyRollingWindow(t *testing.T) {
-	now := time.Now()
-	r := gin.New()
-	r.GET("/login/key", newLoginKeyWindow(func() time.Time { return now }), func(c *gin.Context) { c.Status(http.StatusOK) })
-	request := func() int {
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/login/key", nil))
-		return w.Code
-	}
-	for range 5 {
-		if status := request(); status != http.StatusOK {
-			t.Fatalf("窗口内前五次应放行，实际 %d", status)
+// loginKeyRequest executes the registered route without touching a live service.
+func loginKeyRequest(r *gin.Engine) *httptest.ResponseRecorder {
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/login/key", nil))
+	return w
+}
+
+// TestLoginKeyTokenBucketRecovery uses a virtual clock with the real web middleware.
+func TestLoginKeyTokenBucketRecovery(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		_, r := newLoginTestAPI(t)
+		request := func(want int) {
+			t.Helper()
+			if w := loginKeyRequest(r); w.Code != want {
+				t.Fatalf("at %s expected %d got %d", time.Now().Format(time.RFC3339Nano), want, w.Code)
+			}
 		}
-	}
-	now = now.Add(time.Minute - time.Nanosecond)
-	if status := request(); status != http.StatusTooManyRequests {
-		t.Fatalf("一分钟内第六次应拦截，实际 %d", status)
-	}
-	now = now.Add(time.Nanosecond)
-	for range 5 {
-		if status := request(); status != http.StatusOK {
-			t.Fatalf("一分钟到期应恢复配额，实际 %d", status)
+		for range 20 {
+			request(http.StatusOK)
 		}
-	}
-	if status := request(); status != http.StatusTooManyRequests {
-		t.Fatalf("新窗口第六次应拦截，实际 %d", status)
-	}
+		request(http.StatusTooManyRequests)
+		time.Sleep(10*time.Second - time.Nanosecond)
+		request(http.StatusTooManyRequests)
+		time.Sleep(time.Nanosecond)
+		request(http.StatusOK)
+		request(http.StatusTooManyRequests)
+		// Long idle time must cap replenishment at 20, rather than accumulate unlimited tokens.
+		time.Sleep(24 * time.Hour)
+		for range 20 {
+			request(http.StatusOK)
+		}
+		request(http.StatusTooManyRequests)
+	})
+}
+
+// TestLoginKeyConcurrentRequests verifies a frozen-time burst cannot exceed 20 under concurrency.
+func TestLoginKeyConcurrentRequests(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		api, r := newLoginTestAPI(t)
+		if _, err := api.secret.GetOrCreatePublicKey(); err != nil {
+			t.Fatal(err)
+		}
+		var wg sync.WaitGroup
+		results := make(chan int, 100)
+		for range cap(results) {
+			wg.Go(func() { results <- loginKeyRequest(r).Code })
+		}
+		wg.Wait()
+		close(results)
+		var allowed, limited int
+		for status := range results {
+			switch status {
+			case http.StatusOK:
+				allowed++
+			case http.StatusTooManyRequests:
+				limited++
+			default:
+				t.Fatalf("unexpected status %d", status)
+			}
+		}
+		if allowed != 20 || limited != 80 {
+			t.Fatalf("want 20 allowed and 80 limited, got %d/%d", allowed, limited)
+		}
+	})
 }

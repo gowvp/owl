@@ -15,9 +15,6 @@ import (
 // loginFailureThreshold 是首次锁定前允许的最大失败次数。
 const loginFailureThreshold = 5
 
-// loginKeyRequestsPerMinute 是所有来源共享的密钥接口滚动一分钟配额。
-const loginKeyRequestsPerMinute = 5
-
 // loginInitialLock 是首次达到失败阈值后的停用时间。
 const loginInitialLock = time.Minute
 
@@ -29,9 +26,6 @@ const loginThirdLock = time.Hour
 
 // loginMaximumLock 是后续失败的停用上限。
 const loginMaximumLock = 8 * time.Hour
-
-// loginKeyWindowDuration 是密钥请求配额的滚动统计周期。
-const loginKeyWindowDuration = time.Minute
 
 // loginGuard 只记录当前配置账号的状态，避免伪造用户名造成内存增长。
 type loginGuard struct {
@@ -69,24 +63,4 @@ func abortLoginLimit(c *gin.Context, remaining time.Duration) {
 	seconds := int64((remaining + time.Second - 1) / time.Second)
 	c.Header("Retry-After", strconv.FormatInt(seconds, 10))
 	web.AbortWithStatusJSON(c, reason.ErrTooManyRequests.WithMsg(fmt.Sprintf("登录请求受限，请在 %d 秒后重试", seconds)))
-}
-
-// newLoginKeyWindow 用固定五个时间戳补足令牌桶的突发语义，严格限制滚动一分钟；操作为 O(1)。
-func newLoginKeyWindow(now func() time.Time) gin.HandlerFunc {
-	var mu sync.Mutex
-	var accepted [loginKeyRequestsPerMinute]time.Time
-	var next int
-	return func(c *gin.Context) {
-		mu.Lock()
-		current := now()
-		if remaining := accepted[next].Add(loginKeyWindowDuration).Sub(current); remaining > 0 {
-			mu.Unlock()
-			abortLoginLimit(c, remaining)
-			return
-		}
-		accepted[next] = current
-		next = (next + 1) % len(accepted)
-		mu.Unlock()
-		c.Next()
-	}
 }

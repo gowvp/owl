@@ -16,6 +16,7 @@ import (
 	"github.com/gowvp/owl/internal/conf"
 	"github.com/ixugo/goddd/pkg/reason"
 	"github.com/ixugo/goddd/pkg/web"
+	"golang.org/x/time/rate"
 )
 
 type UserAPI struct {
@@ -91,8 +92,8 @@ func NewUserAPI(conf *conf.Bootstrap) UserAPI {
 // RegisterUser 在登录绑定前检查账号锁定，并限制公开密钥接口的请求数量。
 func RegisterUser(r gin.IRouter, api UserAPI, mid ...gin.HandlerFunc) {
 	r.POST("/login", api.guard.middleware, web.WrapH(api.login))
-	r.GET("/login/key", web.RateLimiter(loginKeyRequestsPerMinute/60.0, loginKeyRequestsPerMinute),
-		newLoginKeyWindow(time.Now), web.WrapH(api.getPublicKey))
+	// 全局共享令牌桶：初始/最大容量 20，每 10 秒补 1 个令牌，允许突发 20 次。
+	r.GET("/login/key", web.RateLimiter(rate.Every(10*time.Second), 20), web.WrapH(api.getPublicKey))
 
 	group := r.Group("/users", mid...)
 	group.PUT("", web.WrapHs(api.updateCredentials, mid...)...)
