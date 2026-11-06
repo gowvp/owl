@@ -1,0 +1,140 @@
+openapi: "3.1.0"
+info:
+  title: 首次初始化 API
+  version: "1.0.0"
+paths:
+  /init:
+    get:
+      summary: 查询初始化状态及四步初始化所需信息
+      tags: [admin/账号初始化]
+      security: []
+      description: |
+        账号或密码任一为空即 need_init=true。未初始化时返回非敏感默认值及端口计划。
+        已初始化时仅返回 need_init=false，不返回配置；任何状态均不返回密码或秘钥。
+        Cache-Control 为 no-store。端口计划来自平台配置、已连接媒体节点或已说明的 ZLM 默认值，不证明放行或容器映射。
+        RTSP/RTMP 优先使用已连接默认媒体节点上报的监听端口，端口为 0 表示未启用。
+        未取得在线节点时，ZLM 使用与项目 Compose 一致的 RTSP 554/TCP、RTMP 1935/TCP 默认值；其他媒体类型不套用。
+        其他未知或未启用端口的 ports 为空字符串，调用方不显示此行；网页不展示媒体 HTTP API 行。
+        更新说明：
+        2026-11-06
+        - firewall 中 RTSP/RTMP 的 ports 优先采用在线媒体节点配置，ZLM 离线时使用官方默认值。
+        firewall 仅供说明，不修改防火墙、安全组或系统权限。
+      responses:
+        "200":
+          description: 当前初始化状态和可用初始化信息
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    additionalProperties: false
+                    required: [need_init]
+                    properties:
+                      need_init: {const: false}
+                  - type: object
+                    required: [need_init, sip, onvif, media, firewall, notes]
+                    properties:
+                      need_init: {const: true}
+                      sip:
+                        type: object
+                        properties:
+                          host: {type: string}
+                          port: {type: integer}
+                          id: {type: string}
+                      onvif:
+                        type: object
+                        properties:
+                          username: {type: string}
+                      media:
+                        type: object
+                        properties:
+                          sdp_ip: {type: string}
+                          type: {type: string}
+                      notes:
+                        type: array
+                        items: {type: string}
+                      firewall:
+                        type: array
+                        items:
+                          type: object
+                          required: [id, label, ports, protocols, direction, condition, description]
+                          properties:
+                            id: {type: string}
+                            label: {type: string}
+                            ports: {type: string}
+                            protocols:
+                              type: array
+                              items: {type: string}
+                            direction: {type: string}
+                            condition: {type: string}
+                            description: {type: string}
+    post:
+      summary: 初始化登录账号和可选接入配置
+      tags: [admin/账号初始化]
+      security: []
+      description: |
+        GET /init 返回 need_init=true 时可提交。
+        从 GET /login/key 获取 Base64 PEM 公钥，将仅含 username/password 的 JSON
+        以 RSA-2048 OAEP、SHA-256（MGF1 同为 SHA-256）加密并 Base64 编码为 data。
+        凭据 JSON 的 UTF-8 长度不得超过 190 字节，username 最多 64 字节、password 最多 128 字节。
+        确认密码在网页校验，不上传；其他表单字段不加密，部署应使用 HTTPS。
+        可选项省略时保持原值；onvif_password 为空时也保留原值。
+        不允许改变 SIP 监听端口，国标域由 ID 前十位自动派生。
+        成功后回到登录页，不自动登录；restart_required=true 时需重启使 SIP/ONVIF 完整生效。
+        并发提交只允许一次成功，校验或持久化失败后可重试。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data:
+                  type: string
+                  maxLength: 512
+                  description: 仅含账号密码的 RSA 密文，Base64 编码
+                sip:
+                  type: object
+                  properties:
+                    host:
+                      type: string
+                      maxLength: 253
+                      description: 本机 IP 或主机名；显式空串时自动探测
+                    id:
+                      type: string
+                      pattern: '^[0-9]{20}$'
+                      description: 20 位数字国标 ID
+                    password:
+                      type: string
+                      maxLength: 128
+                      description: 全局 SIP 注册密码；显式空串表示不限制
+                    port:
+                      type: integer
+                      description: 可省略；如提交必须与部署端口一致
+                media:
+                  type: object
+                  properties:
+                    sdp_ip:
+                      type: string
+                      maxLength: 253
+                      description: 国标收流地址，设备可达的 IPv4 或主机名；省略时保留原值
+                onvif_password:
+                  type: string
+                  maxLength: 128
+                  description: 本机对外 ONVIF 服务密码，用户名沿用部署配置
+      responses:
+        "200":
+          description: 初始化成功，不返回登录令牌
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [msg, restart_required]
+                properties:
+                  msg: {type: string}
+                  restart_required: {type: boolean}
+        "400":
+          description: 已初始化（账号已初始化，请登录），或请求参数、凭据、可选配置无效
+        "500":
+          description: 保存配置失败，账号未生效，可重试

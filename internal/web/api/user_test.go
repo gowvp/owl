@@ -19,29 +19,22 @@ import (
 	"github.com/gowvp/owl/internal/conf"
 )
 
-// TestLoginResetAccount 验证只有默认账号和默认密码同时存在时提示修改凭据。
-func TestLoginResetAccount(t *testing.T) {
-	for _, tt := range []struct {
-		username string
-		password string
-		reset    bool
-	}{{"admin", "admin", true}, {"operator", "admin", false}, {"admin", "changed", false}} {
-		t.Run(tt.username+"-"+tt.password, func(t *testing.T) {
-			api, r := newLoginTestAPI(t)
-			api.conf.Server.Username, api.conf.Server.Password = tt.username, tt.password
-			body := encryptedLoginBody(t, api, fmt.Sprintf(`{"username":%q,"password":%q}`, tt.username, tt.password))
-			w := loginRequest(r, body)
-			if w.Code != http.StatusOK {
-				t.Fatalf("登录失败: %d", w.Code)
-			}
-			var result map[string]any
-			if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
-				t.Fatal(err)
-			}
-			if reset, ok := result["reset_account"].(bool); !ok || reset != tt.reset {
-				t.Fatalf("reset_account 期望 %v，实际 %v", tt.reset, result["reset_account"])
-			}
-		})
+// TestLoginDoesNotForceReset keeps existing complete accounts usable without a reset flow.
+func TestLoginDoesNotForceReset(t *testing.T) {
+	for _, credentials := range [][2]string{{"admin", "admin"}, {"operator", "chosen-password"}} {
+		api, r := newLoginTestAPI(t)
+		api.conf.Server.Username, api.conf.Server.Password = credentials[0], credentials[1]
+		w := loginRequest(r, encryptedLoginBody(t, api, fmt.Sprintf(`{"username":%q,"password":%q}`, credentials[0], credentials[1])))
+		if w.Code != http.StatusOK {
+			t.Fatalf("login: %d", w.Code)
+		}
+		var result map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		if _, exists := result["reset_account"]; exists {
+			t.Fatal("obsolete reset flag returned")
+		}
 	}
 }
 
@@ -49,6 +42,7 @@ func TestLoginResetAccount(t *testing.T) {
 func newLoginTestAPI(t *testing.T) (UserAPI, *gin.Engine) {
 	t.Helper()
 	cfg := conf.DefaultConfig()
+	cfg.Server.Username, cfg.Server.Password = "admin", "admin"
 	api := NewUserAPI(&cfg)
 	r := gin.New()
 	RegisterUser(r, api)

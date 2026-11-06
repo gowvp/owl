@@ -69,14 +69,14 @@ func (a SmsAPI) updateMediaServer(c *gin.Context, in *updateMediaServerInput) (a
 		return nil, err
 	}
 	if in.ID == "local" {
-		a.uc.Conf.Media.IP = out.IP
-		a.uc.Conf.Media.SDPIP = out.SDPIP
-		a.uc.Conf.Media.Secret = out.Secret
-		a.uc.Conf.Media.WebHookIP = out.HookIP
-		a.uc.Conf.Media.Type = out.Type
-		if err := conf.WriteConfig(a.uc.Conf, a.uc.Conf.ConfigPath); err != nil {
-			return nil, reason.ErrServer.WithMsg(err.Error())
+		if err := a.uc.Conf.Update(func(next *conf.Bootstrap) error {
+			next.Media.IP, next.Media.SDPIP, next.Media.Secret = out.IP, out.SDPIP, out.Secret
+			next.Media.WebHookIP, next.Media.Type = out.HookIP, out.Type
+			return nil
+		}); err != nil {
+			return nil, reason.ErrServer.WithMsg("保存配置失败")
 		}
+
 	}
 	return out, err
 }

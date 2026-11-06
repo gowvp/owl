@@ -1,5 +1,8 @@
 # OWL 登录与鉴权漏洞：修复方案及待分析事项
 
+2026-11-03 当前状态：已用首次初始化替代默认账号及登录后强制重置。新安装和样例凭据为空，`GET /init.need_init` 按任一凭据为空判定，`POST /init` 在锁内校验并先持久化；`PUT /users` 不再把空密码回退为 admin，普通账号修改保留。`reset_account` 和前端强制弹窗已删除。下文各阶段及其测试结果为历史记录，初始化契约见 [authentication.md](authentication.md)。
+
+
 日期：2026-10-07。
 
 本文依据 Alex J. 提供的 `/Users/xugo/Downloads/gowvp-owl-upload` 报告，以及当前仓库代码整理。报告测试的是 `7906d31255aff69672a8900830efca6b45c607ea`；本轮修复前的代码为 `c5be5b79cecf41007353afdad46b2c8501ab9375`。报告中的历史实测结果不代表当前版本已重新部署验证。

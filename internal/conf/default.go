@@ -13,8 +13,6 @@ func DefaultConfig() Bootstrap {
 	return Bootstrap{
 		ONVIF: ONVIF{Username: "admin", Password: randomONVIFPassword()},
 		Server: Server{
-			Username:   "admin",
-			Password:   "admin",
 			RTMPSecret: "123",
 			HTTP: ServerHTTP{
 				Port:      15123,

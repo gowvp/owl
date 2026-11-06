@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -20,9 +21,10 @@ import (
 )
 
 type UserAPI struct {
-	conf   *conf.Bootstrap
-	secret *Secret
-	guard  *loginGuard
+	conf       *conf.Bootstrap
+	secret     *Secret
+	guard      *loginGuard
+	mediaPorts func() (rtsp, rtmp int, known bool)
 }
 
 type Secret struct {
@@ -92,6 +94,11 @@ func NewUserAPI(conf *conf.Bootstrap) UserAPI {
 // RegisterUser 在登录绑定前检查账号锁定，并限制公开密钥接口的请求数量。
 func RegisterUser(r gin.IRouter, api UserAPI, mid ...gin.HandlerFunc) {
 	r.POST("/login", api.guard.middleware, web.WrapH(api.login))
+	r.GET("/init", web.WrapH(api.getInitialization))
+	r.POST("/init", func(c *gin.Context) {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 8<<10)
+		c.Next()
+	}, web.WrapH(api.initialize))
 	// 全局共享令牌桶：初始/最大容量 20，每 10 秒补 1 个令牌，允许突发 20 次。
 	r.GET("/login/key", web.RateLimiter(rate.Every(10*time.Second), 20), web.WrapH(api.getPublicKey))
 
@@ -108,9 +115,8 @@ type loginInput struct {
 
 // 登录响应结构体
 type loginOutput struct {
-	Token        string `json:"token"`
-	User         string `json:"user"`
-	ResetAccount bool   `json:"reset_account"`
+	Token string `json:"token"`
+	User  string `json:"user"`
 }
 
 // login 校验加密凭据并签发令牌，任一配置凭据为空时拒绝登录，避免恢复默认密码。
@@ -129,8 +135,9 @@ func (api UserAPI) login(_ *gin.Context, in *loginInput) (*loginOutput, error) {
 	}
 
 	// 验证用户名和密码
-	if api.conf.Server.Username == "" || api.conf.Server.Password == "" ||
-		credentials.Username != api.conf.Server.Username || credentials.Password != api.conf.Server.Password {
+	username, password := api.conf.Credentials()
+	if username == "" || password == "" ||
+		credentials.Username != username || credentials.Password != password {
 		return nil, reason.ErrNameOrPasswd
 	}
 
@@ -150,9 +157,8 @@ func (api UserAPI) login(_ *gin.Context, in *loginInput) (*loginOutput, error) {
 	}
 
 	return &loginOutput{
-		Token:        token,
-		User:         credentials.Username,
-		ResetAccount: credentials.Username == "admin" && credentials.Password == "admin",
+		Token: token,
+		User:  credentials.Username,
 	}, nil
 }
 
@@ -180,20 +186,14 @@ func (api UserAPI) updateCredentials(_ *gin.Context, in *updateCredentialsInput)
 		return nil, reason.ErrServer.WithMsg("账号和密码不能为空")
 	}
 
-	// 校验旧密码
-	currentPassword := api.conf.Server.Password
-	if currentPassword == "" {
-		currentPassword = "admin"
-	}
-	if credentials.OldPassword != currentPassword {
-		return nil, reason.ErrServer.WithMsg("旧密码错误")
-	}
-
-	api.conf.Server.Username = credentials.Username
-	api.conf.Server.Password = credentials.Password
-
-	if err := conf.WriteConfig(api.conf, api.conf.ConfigPath); err != nil {
-		return nil, reason.ErrServer.WithMsg("保存配置失败: " + err.Error())
+	if err := api.conf.Update(func(next *conf.Bootstrap) error {
+		if next.Server.Username == "" || next.Server.Password == "" || credentials.OldPassword != next.Server.Password {
+			return reason.ErrBadRequest.WithMsg("旧密码错误")
+		}
+		next.Server.Username, next.Server.Password = credentials.Username, credentials.Password
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 
 	return gin.H{"msg": "凭据更新成功"}, nil

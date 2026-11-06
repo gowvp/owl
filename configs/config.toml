@@ -3,9 +3,9 @@
   # rtmp 推流秘钥
   RTMPSecret = '123'
   # 登录用户名
-  Username = 'admin'
+  Username = ""
   # 登录密码
-  Password = 'admin'
+  Password = ""
 
   # ai 分析服务
   [Server.AI]

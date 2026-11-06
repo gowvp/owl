@@ -15,6 +15,7 @@ import (
 // MetadataAPI 为 http 提供通用数据持久化的业务方法
 type MetadataAPI struct {
 	metadataCore metadata.Core
+	needInit     func() bool
 }
 
 func NewMetadataCore(db *gorm.DB) metadata.Core {
@@ -25,6 +26,17 @@ func NewMetadataCore(db *gorm.DB) metadata.Core {
 
 func NewMetadataAPI(core metadata.Core) MetadataAPI {
 	return MetadataAPI{metadataCore: core}
+}
+
+// WithInitializationStatus adds live initialization state without changing stored metadata.
+func (a MetadataAPI) WithInitializationStatus(needInit func() bool) MetadataAPI {
+	a.needInit = needInit
+	return a
+}
+
+type getMetadataOutput struct {
+	*metadata.Metadata
+	NeedInit *bool `json:"need_init,omitempty"`
 }
 
 // metadataIDInput 元数据 ID 路径参数
@@ -56,15 +68,21 @@ func RegisterMetadata(g gin.IRouter, api MetadataAPI, handler ...gin.HandlerFunc
 // }
 
 // getMetadata 按 ID 查询数据，未找到时返回空对象而非错误，避免前端 400
-func (a MetadataAPI) getMetadata(c *gin.Context, in *metadataIDInput) (*metadata.Metadata, error) {
+func (a MetadataAPI) getMetadata(c *gin.Context, in *metadataIDInput) (*getMetadataOutput, error) {
 	out, err := a.metadataCore.GetMetadata(c.Request.Context(), in.ID)
 	if err != nil {
 		if errors.Is(err, reason.ErrNotFound) {
-			return &metadata.Metadata{ID: in.ID}, nil
+			out = &metadata.Metadata{ID: in.ID}
+		} else {
+			return nil, err
 		}
-		return nil, err
 	}
-	return out, nil
+	response := &getMetadataOutput{Metadata: out}
+	if in.ID == "login_page" && a.needInit != nil {
+		response.NeedInit = new(a.needInit())
+		c.Header("Cache-Control", "no-store")
+	}
+	return response, nil
 }
 
 // saveMetadata 幂等保存：已存在则更新，不存在则创建

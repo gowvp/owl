@@ -100,7 +100,7 @@ func setupRouter(r *gin.Engine, uc *Usecase) {
 		ctx.Redirect(http.StatusPermanentRedirect, staticPrefix+"/")
 	})
 
-	auth := AuthMiddleware(uc.Conf.Server.HTTP.JwtSecret, uc.Conf.Server.HTTP.APISecret, uc.Conf.Server.HTTP.AuthURL, uc.Conf.Server.Username)
+	auth := uc.UserAPI.requireInitialized(AuthMiddleware(uc.Conf.Server.HTTP.JwtSecret, uc.Conf.Server.HTTP.APISecret, uc.Conf.Server.HTTP.AuthURL, uc.Conf.Server.Username))
 	onvifserver.Register(r, uc.GB28181API.ipc, uc.SMSAPI.smsCore, uc.Conf)
 	r.Any("/health", web.WrapH(uc.getHealth))
 	r.GET("/app/metrics/api", web.WrapH(uc.getMetricsAPI))
@@ -114,7 +114,15 @@ func setupRouter(r *gin.Engine, uc *Usecase) {
 	uc.ConfigAPI.uc = uc
 	registerConfig(r, uc.ConfigAPI, auth)
 	registerSms(r, uc.SMSAPI, auth)
-	RegisterUser(r, uc.UserAPI, auth)
+	userAPI := uc.UserAPI
+	userAPI.mediaPorts = func() (int, int, bool) {
+		node, err := uc.SMSAPI.smsCore.GetDefaultMediaServer()
+		if err != nil || !node.Status {
+			return 0, 0, false
+		}
+		return node.Ports.RTSP, node.Ports.RTMP, true
+	}
+	RegisterUser(r, userAPI, auth)
 
 	registerWS(r, uc.Conf.Server.HTTP.JwtSecret)
 
@@ -127,7 +135,7 @@ func setupRouter(r *gin.Engine, uc *Usecase) {
 	uc.AIWebhookAPI.StartAISyncLoop(context.Background(), uc.SMSAPI.smsCore)
 	RegisterEvent(r, uc.EventAPI, auth)
 	RegisterRecording(r, uc.RecordingAPI, auth)
-	metadataapi.RegisterMetadata(r, uc.MetadataAPI, auth)
+	metadataapi.RegisterMetadata(r, uc.MetadataAPI.WithInitializationStatus(uc.Conf.NeedsInit), auth)
 }
 
 type playOutput struct {

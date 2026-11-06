@@ -322,12 +322,12 @@ ONVIF SOAP endpoints (same HTTP port as the web UI):
 - `POST http://<host>:15123/onvif/device_service`
 - `POST http://<host>:15123/onvif/media_service`
 
-Authentication uses `Server.Username` / `Server.Password` in `configs/config.toml` (WS-Security `PasswordDigest` or `PasswordText`), same defaults as web login (`admin` / `admin`).
+Authentication uses independent `ONVIF.Username` / `ONVIF.Password` in `configs/config.toml` (WS-Security `PasswordDigest` or `PasswordText`). Missing credentials are filled with username `admin` and a persistent random password. New web installations require account initialization; no default web account is created. Optional SIP / ONVIF settings are available during setup and require a restart for full effect.
 
 **Home Assistant (manual add):**
 
 - Host: `http://<lan-ip>:15123/onvif/device_service`
-- Username / password: values from `config.toml` `Server.Username` / `Server.Password`
+- Username / password: values from `config.toml` `ONVIF.Username` / `ONVIF.Password`
 
 **Auto-discovery:** After startup, GoWVP answers WS-Discovery Probe on **UDP 3702**. Set `Media.IP` (or `Sip.Host`) in `configs/config.toml` to your LAN IP so `XAddrs` is reachable from Home Assistant.
 

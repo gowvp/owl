@@ -9,7 +9,6 @@ import (
 	"github.com/ixugo/goddd/pkg/orm"
 	"github.com/ixugo/goddd/pkg/reason"
 	"github.com/ixugo/goddd/pkg/web"
-	"github.com/jinzhu/copier"
 	"gorm.io/gorm"
 )
 
@@ -83,13 +82,13 @@ func (a ConfigAPI) getConfigInfo(c *gin.Context, _ *struct{}) (*getConfigInfoOut
 }
 
 func (a ConfigAPI) updateSIP(_ *gin.Context, in *conf.SIP) (gin.H, error) {
-	if err := copier.Copy(&a.conf.Sip, in); err != nil {
-		return nil, reason.ErrServer.WithMsg(err.Error())
+	if err := a.conf.Update(func(next *conf.Bootstrap) error {
+		next.Sip = *in
+		return nil
+	}); err != nil {
+		return nil, reason.ErrServer.WithMsg("保存配置失败")
 	}
 
-	if err := conf.WriteConfig(a.conf, a.conf.ConfigPath); err != nil {
-		return nil, reason.ErrServer.WithMsg(err.Error())
-	}
 	a.uc.SipServer.SetConfig()
 
 	return gin.H{"msg": "ok"}, nil

@@ -46,8 +46,8 @@ func AuthMiddleware(jwtSecret string, apiSecret string, authURL string, defaultA
 		if apiSecret != "" && tokenStr != "" && subtle.ConstantTimeCompare([]byte(tokenStr), []byte(apiSecret)) == 1 {
 			c.Set(web.KeyTokenString, auth)
 			admin := defaultAdmin
-			if admin == "" {
-				admin = "admin"
+			if configured, ok := c.Get("configured_username"); ok {
+				admin, _ = configured.(string)
 			}
 			c.Set("username", admin)
 			c.Set("role", "admin")

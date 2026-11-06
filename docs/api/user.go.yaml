@@ -1,0 +1,92 @@
+openapi: "3.1.0"
+info:
+  title: 登录与账号 API
+  version: "1.0.0"
+paths:
+  /login/key:
+    get:
+      summary: 获取凭据加密公钥
+      tags: [admin/账号]
+      security: []
+      responses:
+        "200":
+          description: Base64 编码的 PEM 格式 RSA 公钥
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [key]
+                properties:
+                  key: {type: string}
+        "429":
+          description: 公钥请求过于频繁
+  /login:
+    post:
+      summary: 使用加密凭据登录
+      tags: [admin/账号]
+      security: []
+      description: |
+        data 内为 username、password、可选 auto_login 的 JSON，经 UTF-8、RSA-OAEP/SHA-256 加密后 Base64 编码。
+        从 /login/key 获取公钥；RSA-2048 每块最多 190 字节，应用层加密不替代 HTTPS。
+        更新说明：
+        2026-11-03
+        - 移除 reset_account 响应字段，登录后不再强制重置账号密码
+      requestBody:
+        $ref: '#/components/requestBodies/EncryptedCredentials'
+      responses:
+        "200":
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, user]
+                properties:
+                  token: {type: string}
+                  user: {type: string}
+        "400":
+          description: 凭据无效
+        "429":
+          description: 登录暂时受限，按 Retry-After 重试
+  /users:
+    put:
+      summary: 主动修改账号密码
+      tags: [admin/账号]
+      security: [{bearerAuth: []}]
+      description: |
+        data 内为 username、password、old_password 的 JSON，沿用登录的加密方式。
+        必须校验当前密码；配置密码为空时不回退到任何默认密码。
+      requestBody:
+        $ref: '#/components/requestBodies/EncryptedCredentials'
+      responses:
+        "200":
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  msg: {type: string}
+        "400":
+          description: 请求或旧密码有误
+        "401":
+          description: 未认证
+        "409":
+          description: 请先初始化账号
+        "500":
+          description: 保存失败，原凭据保持有效
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
+  requestBodies:
+    EncryptedCredentials:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data:
+                type: string
+                description: RSA 密文，Base64 编码

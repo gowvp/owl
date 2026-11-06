@@ -8,11 +8,16 @@ paths:
   /metadatas/{id}:
     get:
       summary: 按 ID 查询数据
-      description: 根据 ID 查询单条数据记录
+      description: |
+        根据 ID 查询单条数据记录，不存在时返回含 id 的空记录。无需认证。
+        login_page 仍兼容返回 need_init；新的初始化流程应使用独立 GET /init。原有 ext 保持不变。
+        更新说明：
+        2026-11-03
+        - login_page 响应增加 need_init，状态响应禁止缓存
+        - 文档改为实际响应顶层结构
       tags:
         - 通用数据持久化
-      security:
-        - bearerAuth: []
+      security: []
       parameters:
         - name: id
           in: path
@@ -26,12 +31,14 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  data:
-                    $ref: "#/components/schemas/Metadata"
-        "404":
-          description: 记录不存在
+                allOf:
+                  - $ref: "#/components/schemas/Metadata"
+                  - type: object
+                    properties:
+                      need_init:
+                        type: boolean
+                        deprecated: true
+                        description: 兼容字段，仅 login_page 返回；新流程使用 GET /init
 
     post:
       summary: 保存数据
