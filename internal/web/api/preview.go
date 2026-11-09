@@ -65,7 +65,7 @@ type previewManager struct {
 
 // 不自动改名或接管历史通道；冲突或检查失败时保留原流程，重启后重新检查。
 func (uc *Usecase) initPreview() {
-	config := uc.Conf.Media
+	config := uc.Conf.MediaSnapshot()
 	if !config.PreviewDisabled {
 		_, total, err := uc.GB28181API.ipc.ListChannels(context.Background(), &ipc.FindChannelInput{
 			PagerFilter: web.PagerFilter{Page: 1, Size: 1}, App: previewApp,
@@ -80,7 +80,7 @@ func (uc *Usecase) initPreview() {
 }
 
 func (uc *Usecase) previewEnabled() bool {
-	return uc != nil && uc.preview != nil && !uc.Conf.Media.PreviewDisabled && !uc.preview.config.PreviewDisabled
+	return uc != nil && uc.preview != nil && !uc.Conf.MediaSnapshot().PreviewDisabled && !uc.preview.config.PreviewDisabled
 }
 
 func newPreviewManager(config conf.Media) *previewManager {
@@ -359,7 +359,7 @@ func offeredVideoCodec(sdp, codec string) bool {
 
 // 在 proxySMS 校验原播放 token 后调用；返回仅供反代使用的流地址与内部密钥。
 func (uc *Usecase) preparePreview(c *gin.Context, path string) (string, string, error) {
-	if !uc.previewEnabled() || uc.Conf.Media.Type == sms.ProtocolLalmax ||
+	if !uc.previewEnabled() || uc.Conf.MediaSnapshot().Type == sms.ProtocolLalmax ||
 		path != "/index/api/webrtc" || c.Request.Method != http.MethodPost || c.Query("type") != "play" {
 		return "", "", nil
 	}

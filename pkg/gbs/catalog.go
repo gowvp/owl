@@ -102,10 +102,12 @@ func (s *Server) wrapRequest(t Targeter, method string, contentType *sip.Content
 	conn := t.Conn()
 	source := t.Source()
 
-	from := s.fromAddress.Clone()
+	cfg := s.gb.sipConfig()
+	address := s.addressFor(cfg)
+	from := address.Clone()
 	from.Params = sip.NewParams().Add("tag", sip.String{Str: sip.RandString(10)})
 
-	contact := s.fromAddress.Clone()
+	contact := address.Clone()
 	contact.Params = sip.NewParams()
 
 	transport := "UDP"
@@ -114,14 +116,14 @@ func (s *Server) wrapRequest(t Targeter, method string, contentType *sip.Content
 	}
 
 	// Via Host 优先级: 配置 sip.host → conn.LocalAddr（设备连接本端地址） → fromAddress LAN IP
-	viaHost := resolveHost(s.gb.cfg.Host)
+	viaHost := resolveHost(cfg.Host)
 	if viaHost == "" && conn != nil {
 		if host, _, err := net.SplitHostPort(conn.LocalAddr().String()); err == nil {
 			viaHost = host
 		}
 	}
 	if viaHost == "" {
-		viaHost = s.fromAddress.URI.FHost
+		viaHost = address.URI.FHost
 	}
 
 	hb := sip.NewHeaderBuilder().

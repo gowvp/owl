@@ -104,6 +104,7 @@ func TestInitializationInfoWhitelistsDefaults(t *testing.T) {
 	}
 }
 
+// TestInitializeReceiveIP 验证收流地址校验和持久化，并确保 ZLM 地址变更会提示重启。
 func TestInitializeReceiveIP(t *testing.T) {
 	for _, tc := range []struct {
 		host string
@@ -131,9 +132,11 @@ func TestInitializeReceiveIP(t *testing.T) {
 				t.Fatal("receive IP not persisted")
 			}
 			var out map[string]any
-			json.Unmarshal(w.Body.Bytes(), &out)
+			if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+				t.Fatal(err)
+			}
 			if out["restart_required"] != true {
-				t.Fatal("restart requirement missing")
+				t.Fatal("ZLM receive IP change must require a restart")
 			}
 		})
 	}

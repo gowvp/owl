@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gowvp/owl/internal/conf"
@@ -34,8 +35,10 @@ type Server struct {
 	gb           *GB28181API
 	mediaService sms.Core
 
-	fromAddress  sip.Address
-	memoryStorer MemoryStorer
+	memoryStorer  MemoryStorer
+	addressMu     sync.Mutex
+	addressConfig conf.SIP
+	fromAddress   *sip.Address
 }
 
 // resolveHost 将 host 统一为 IP：域名做 DNS 解析，IP 直接返回
@@ -58,19 +61,8 @@ func resolveHost(host string) string {
 func NewServer(cfg *conf.Bootstrap, store ipc.Adapter, sc sms.Core) (*Server, func()) {
 	api := NewGB28181API(cfg, store, sc.NodeManager)
 
-	// 优先使用配置的公网地址，空时回退内网探测；域名自动解析为 IP
-	sipHost := resolveHost(cfg.Sip.Host)
-	if sipHost == "" {
-		sipHost = ip.InternalIP()
-	}
-	uri, _ := sip.ParseSipURI(fmt.Sprintf("sip:%s@%s:%d", cfg.Sip.ID, sipHost, cfg.Sip.Port))
-	from := sip.Address{
-		DisplayName: sip.String{Str: "gowvp/owl"},
-		URI:         &uri,
-		Params:      sip.NewParams(),
-	}
-
-	svr = sip.NewServer(&from)
+	from := sipFrom(api.sipConfig())
+	svr = sip.NewServer(from)
 
 	svr.Use(func(c *sip.Context) {
 		if filterUnknowDevices(c.DeviceID) != nil {
@@ -92,11 +84,12 @@ func NewServer(cfg *conf.Bootstrap, store ipc.Adapter, sc sms.Core) (*Server, fu
 	c := Server{
 		Server:       svr,
 		mediaService: sc,
-		fromAddress:  from,
 		gb:           api,
 		memoryStorer: store.Store().(MemoryStorer),
 	}
 	api.svr = &c
+	// A committed configuration refreshes identity without restarting listeners.
+	svr.SetFromProvider(func() *sip.Address { return c.addressFor(api.sipConfig()) })
 
 	go svr.ListenUDPServer(fmt.Sprintf(":%d", cfg.Sip.Port))
 	go svr.ListenTCPServer(fmt.Sprintf(":%d", cfg.Sip.Port))
@@ -112,21 +105,32 @@ func NewServer(cfg *conf.Bootstrap, store ipc.Adapter, sc sms.Core) (*Server, fu
 	return &c, c.Close
 }
 
-// SetConfig 热更新 SIP 配置，用于配置变更时更新 from 地址而无需重启服务
-func (s *Server) SetConfig() {
-	cfg := s.gb.cfg
+// addressFor caches host resolution until identity changes. Every caller gets
+// its own clone so outstanding transactions cannot be mutated by a later update.
+func (s *Server) addressFor(cfg conf.SIP) *sip.Address {
+	cfg.Password = "" // Authentication changes do not require resolving the host.
+	s.addressMu.Lock()
+	defer s.addressMu.Unlock()
+	if s.fromAddress == nil || s.addressConfig != cfg {
+		s.fromAddress = sipFrom(cfg)
+		s.addressConfig = cfg
+	}
+	return s.fromAddress.Clone()
+}
+
+// sipFrom builds a fresh immutable address for one operation. The SIP port is
+// deployment-owned; initialization changes advertised identity, not listeners.
+func sipFrom(cfg conf.SIP) *sip.Address {
 	sipHost := resolveHost(cfg.Host)
 	if sipHost == "" {
 		sipHost = ip.InternalIP()
 	}
 	uri, _ := sip.ParseSipURI(fmt.Sprintf("sip:%s@%s:%d", cfg.ID, sipHost, cfg.Port))
-	from := sip.Address{
+	return &sip.Address{
 		DisplayName: sip.String{Str: "gowvp/owl"},
 		URI:         &uri,
 		Params:      sip.NewParams(),
 	}
-	s.fromAddress = from
-	s.Server.SetFrom(&from)
 }
 
 // startTickerCheck 定时检查离线，通过心跳超时判断设备是否离线

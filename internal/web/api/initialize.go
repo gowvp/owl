@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gowvp/owl/internal/conf"
+	"github.com/gowvp/owl/internal/core/sms"
 	"github.com/ixugo/goddd/pkg/reason"
 	"github.com/ixugo/goddd/pkg/web"
 )
@@ -45,6 +46,7 @@ func (api UserAPI) requireInitialized(auth gin.HandlerFunc) gin.HandlerFunc {
 	}
 }
 
+// initialize 原子保存首次初始化配置，并在 ZLM 的 ICE 地址需要重新下发时提示重启。
 func (api UserAPI) initialize(_ *gin.Context, in *initializeInput) (gin.H, error) {
 	// Early rejection avoids decrypting requests after setup. The decisive check
 	// is repeated under the configuration write lock below.
@@ -112,12 +114,13 @@ func (api UserAPI) initialize(_ *gin.Context, in *initializeInput) (gin.H, error
 			if !validSIPHost(host) || (ip != nil && ip.To4() == nil) {
 				return reason.ErrBadRequest.WithMsg("收流地址应为设备可达的 IPv4 或主机名")
 			}
+			// 返回模型的地址会即时更新，但 ZLM 的 rtc.externIP 仍需重启平台后重新下发。
+			restartRequired = next.Media.Type == sms.ProtocolZLMediaKit && next.Media.SDPIP != host
 			next.Media.SDPIP = host
 		}
 		if in.ONVIFPassword != nil && *in.ONVIFPassword != "" {
 			next.ONVIF.Password = *in.ONVIFPassword
 		}
-		restartRequired = next.Sip != api.conf.Sip || next.ONVIF != api.conf.ONVIF || next.Media.SDPIP != api.conf.Media.SDPIP
 		next.Server.Username, next.Server.Password = credentials.Username, credentials.Password
 		return nil
 	})

@@ -277,7 +277,8 @@ func (uc *Usecase) proxySMS(c *gin.Context) {
 	_ = rc.SetReadDeadline(exp)
 	_ = rc.SetWriteDeadline(exp)
 
-	addr, err := url.JoinPath(fmt.Sprintf("http://%s:%d", uc.Conf.Media.IP, uc.Conf.Media.HTTPPort), path)
+	media := uc.Conf.MediaSnapshot()
+	addr, err := url.JoinPath(fmt.Sprintf("http://%s:%d", media.IP, media.HTTPPort), path)
 	if err != nil {
 		web.Fail(c, err)
 		return
@@ -288,7 +289,7 @@ func (uc *Usecase) proxySMS(c *gin.Context) {
 
 	proxy.Director = func(req *http.Request) {
 		req.URL.Scheme = "http"
-		req.URL.Host = fmt.Sprintf("%s:%d", uc.Conf.Media.IP, uc.Conf.Media.HTTPPort)
+		req.URL.Host = fmt.Sprintf("%s:%d", media.IP, media.HTTPPort)
 		req.URL.Path = path
 		if previewStream != "" {
 			query := req.URL.Query()

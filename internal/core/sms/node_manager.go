@@ -33,6 +33,7 @@ type WarpMediaServer struct {
 
 type NodeManager struct {
 	storer Storer
+	config *conf.Bootstrap
 
 	drivers       map[string]Driver
 	cacheServers  conc.Map[string, *WarpMediaServer]
@@ -157,6 +158,7 @@ func setupSecret(bc *conf.Bootstrap) {
 }
 
 func (n *NodeManager) Run(bc *conf.Bootstrap, serverPort int) error {
+	n.config = bc
 	ctx := context.Background()
 	setupSecret(bc)
 	cfg := bc.Media

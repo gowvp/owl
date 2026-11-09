@@ -9,11 +9,12 @@ func advertiseHost(cfg *conf.Bootstrap) string {
 	if cfg == nil {
 		return ""
 	}
+	snapshot := cfg.Snapshot()
 	for _, h := range []string{
-		cfg.Media.SDPIP,
-		cfg.Sip.Host,
-		cfg.Media.WebHookIP,
-		cfg.Media.IP,
+		snapshot.Media.SDPIP,
+		snapshot.Sip.Host,
+		snapshot.Media.WebHookIP,
+		snapshot.Media.IP,
 	} {
 		if isLANHost(h) {
 			return h

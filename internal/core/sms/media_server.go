@@ -27,7 +27,9 @@ func (c Core) ListMediaServers(ctx context.Context, in *FindMediaServerInput) ([
 		return nil, 0, reason.ErrDB.Withf(`List err[%s]`, err.Error())
 	}
 
-	for _, item := range items {
+	for i, item := range items {
+		item = c.runtimeMediaServer(item)
+		items[i] = item
 		value, ok := c.cacheServers.Load(item.ID)
 		if ok {
 			item.Status = value.IsOnline
@@ -48,7 +50,7 @@ func (c Core) GetMediaServer(ctx context.Context, id string) (*MediaServer, erro
 		}
 		return nil, reason.ErrDB.Withf(`Get err[%s]`, err.Error())
 	}
-	return out, nil
+	return c.runtimeMediaServer(out), nil
 }
 
 // CreateMediaServer 创建流媒体服务器
@@ -86,5 +88,9 @@ func (c Core) DeleteMediaServer(ctx context.Context, id string) (*MediaServer, e
 
 // GetDefaultMediaServer 获取默认流媒体服务器
 func (c Core) GetDefaultMediaServer() (*MediaServer, error) {
-	return c.storer.MediaServer().GetByID(context.Background(), DefaultMediaServerID)
+	out, err := c.storer.MediaServer().GetByID(context.Background(), DefaultMediaServerID)
+	if err != nil {
+		return out, err
+	}
+	return c.runtimeMediaServer(out), nil
 }

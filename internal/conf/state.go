@@ -54,3 +54,10 @@ func (b *Bootstrap) Snapshot() Bootstrap {
 	defer configStateMu.RUnlock()
 	return *b
 }
+
+// MediaSnapshot 集中读取媒体配置，复用配置锁避免并发赋值，并只复制调用方需要的部分。
+func (b *Bootstrap) MediaSnapshot() Media {
+	configStateMu.RLock()
+	defer configStateMu.RUnlock()
+	return b.Media
+}

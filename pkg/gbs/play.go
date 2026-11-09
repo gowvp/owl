@@ -274,6 +274,8 @@ func buildPlaySDP(deviceID, channelID, ip string, port int, streamMode int8, ssr
 //     否则设备无法将信令与 RTP 流绑定，导致不推流。
 //  2. Subject 格式：`<channel_id>:<sender_ssrc>,<sip_server_id>:0`。
 func (g *GB28181API) sipPlayPush2(ch *Channel, in *PlayInput, port int, stream *Streams) error {
+	cfg := g.sipConfig()
+	address := g.svr.addressFor(cfg)
 	ipstr := in.SMS.GetSDPIP()
 	ip4str, err := GetIP(ipstr)
 	if err != nil {
@@ -298,17 +300,17 @@ func (g *GB28181API) sipPlayPush2(ch *Channel, in *PlayInput, port int, stream *
 	}
 
 	// Via Host 优先级: 配置 sip.host → conn.LocalAddr → fromAddress LAN IP
-	viaHost := resolveHost(g.cfg.Host)
+	viaHost := resolveHost(cfg.Host)
 	if viaHost == "" && conn != nil {
 		if host, _, err := net.SplitHostPort(conn.LocalAddr().String()); err == nil {
 			viaHost = host
 		}
 	}
 	if viaHost == "" {
-		viaHost = g.svr.fromAddress.URI.FHost
+		viaHost = address.URI.FHost
 	}
 
-	deviceHost := g.cfg.GetDomain()
+	deviceHost := cfg.GetDomain()
 	if source != nil {
 		deviceHost = source.String()
 	}
@@ -316,9 +318,9 @@ func (g *GB28181API) sipPlayPush2(ch *Channel, in *PlayInput, port int, stream *
 	toAddr := &sip.Address{URI: toURI, Params: sip.NewParams()}
 
 	// Contact: 纯地址不带 DisplayName
-	contact := &sip.Address{URI: g.svr.fromAddress.URI, Params: sip.NewParams()}
+	contact := &sip.Address{URI: address.URI, Params: sip.NewParams()}
 
-	fromURI, _ := sip.ParseURI(fmt.Sprintf("sip:%s@%s", g.cfg.ID, g.cfg.GetDomain()))
+	fromURI, _ := sip.ParseURI(fmt.Sprintf("sip:%s@%s", cfg.ID, cfg.GetDomain()))
 	hb := sip.NewHeaderBuilder().
 		SetMethod(sip.MethodInvite).
 		SetTo(toAddr).
@@ -332,7 +334,7 @@ func (g *GB28181API) sipPlayPush2(ch *Channel, in *PlayInput, port int, stream *
 		}).
 		SetFrom(&sip.Address{URI: fromURI, Params: sip.NewParams().Add("tag", sip.String{Str: sip.RandString(5)})}).
 		SetContentType(&sip.ContentTypeSDP).
-		SetSubject(fmt.Sprintf("%s:%s,%s:%s", ch.ChannelID, ssrc, g.cfg.ID, "0"))
+		SetSubject(fmt.Sprintf("%s:%s,%s:%s", ch.ChannelID, ssrc, cfg.ID, "0"))
 
 	req := sip.NewRequest("", sip.MethodInvite, toAddr.URI, sip.DefaultSipVersion, hb.Build(), body)
 	req.SetDestination(source)
@@ -353,8 +355,8 @@ func (g *GB28181API) sipPlayPush2(ch *Channel, in *PlayInput, port int, stream *
 
 	if contact, _ := resp.Contact(); contact == nil {
 		resp.AppendHeader(&sip.ContactHeader{
-			DisplayName: g.svr.fromAddress.DisplayName,
-			Address:     &sip.URI{FUser: sip.String{Str: g.cfg.ID}, FHost: g.cfg.GetDomain()},
+			DisplayName: address.DisplayName,
+			Address:     &sip.URI{FUser: sip.String{Str: cfg.ID}, FHost: cfg.GetDomain()},
 			Params:      sip.NewParams(),
 		})
 	}

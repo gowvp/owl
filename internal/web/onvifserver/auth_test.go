@@ -30,7 +30,7 @@ func TestSOAPIndependentCredentials(t *testing.T) {
 		Server: conf.Server{Username: "web-user", Password: "web-password"},
 		ONVIF:  conf.ONVIF{Username: "nvr-user", Password: "nvr-password"},
 	}
-	handler := newSOAPServer(cfg, authStreamProvider{}, "test", "127.0.0.1").Handler()
+	handler := newSOAPHandler(cfg, authStreamProvider{}, "test")
 	// 模拟网页修改账号密码，ONVIF 已创建对象及后续重建对象都应继续使用独立凭据。
 	cfg.Server.Username, cfg.Server.Password = "new-web-user", "new-web-password"
 	cases := []struct {
@@ -50,7 +50,7 @@ func TestSOAPIndependentCredentials(t *testing.T) {
 			})
 		}
 	}
-	rebuilt := newSOAPServer(cfg, authStreamProvider{}, "test", "127.0.0.1").Handler()
+	rebuilt := newSOAPHandler(cfg, authStreamProvider{}, "test")
 	checkSOAPAuth(t, rebuilt, "/onvif/device_service", cfg.ONVIF, http.StatusOK)
 }
 
@@ -60,7 +60,7 @@ func TestSOAPGeneratedCredentials(t *testing.T) {
 	if err := cfg.InitONVIF(); err != nil {
 		t.Fatal(err)
 	}
-	handler := newSOAPServer(cfg, authStreamProvider{}, "test", "127.0.0.1").Handler()
+	handler := newSOAPHandler(cfg, authStreamProvider{}, "test")
 	checkSOAPAuth(t, handler, "/onvif/device_service", conf.ONVIF{}, http.StatusUnauthorized)
 	checkSOAPAuth(t, handler, "/onvif/device_service", cfg.ONVIF, http.StatusOK)
 }

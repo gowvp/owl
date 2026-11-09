@@ -77,7 +77,7 @@ type getConfigInfoOutput struct {
 
 func (a ConfigAPI) getConfigInfo(c *gin.Context, _ *struct{}) (*getConfigInfoOutput, error) {
 	return &getConfigInfoOutput{
-		SIP: a.conf.Sip,
+		SIP: a.conf.Snapshot().Sip,
 	}, nil
 }
 
@@ -88,8 +88,6 @@ func (a ConfigAPI) updateSIP(_ *gin.Context, in *conf.SIP) (gin.H, error) {
 	}); err != nil {
 		return nil, reason.ErrServer.WithMsg("保存配置失败")
 	}
-
-	a.uc.SipServer.SetConfig()
 
 	return gin.H{"msg": "ok"}, nil
 }

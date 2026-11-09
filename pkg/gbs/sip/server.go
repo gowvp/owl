@@ -41,7 +41,9 @@ type Server struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	from *Address
+	fromMu       sync.RWMutex
+	from         *Address
+	fromProvider func() *Address
 }
 
 // NewServer sip server
@@ -65,7 +67,28 @@ func (s *Server) Use(middleware ...HandlerFunc) {
 
 // SetFrom 热更新 SIP 源地址配置，用于配置变更时无需重启服务
 func (s *Server) SetFrom(from *Address) {
-	*s.from = *from
+	s.fromMu.Lock()
+	defer s.fromMu.Unlock()
+	s.from = from.Clone()
+}
+
+// SetFromProvider supplies committed runtime identity without mutating addresses
+// that may still be referenced by in-flight transactions.
+func (s *Server) SetFromProvider(provider func() *Address) {
+	s.fromMu.Lock()
+	defer s.fromMu.Unlock()
+	s.fromProvider = provider
+}
+
+func (s *Server) From() *Address {
+	s.fromMu.RLock()
+	provider := s.fromProvider
+	if provider == nil {
+		defer s.fromMu.RUnlock()
+		return s.from.Clone()
+	}
+	s.fromMu.RUnlock()
+	return provider()
 }
 
 func (s *Server) addRoute(method string, handler ...HandlerFunc) {
@@ -319,7 +342,7 @@ func (s *Server) handlerRequest(msg *Request) {
 
 	ctx := newContext(msg, tx)
 	ctx.handlers = chain
-	ctx.From = s.from
+	ctx.From = s.From()
 	ctx.svr = s
 	go func() {
 		ctx.Next()

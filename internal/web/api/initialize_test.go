@@ -85,10 +85,10 @@ func TestInitializePersistenceFailure(t *testing.T) {
 	api.conf.Server.Username = ""
 	api.conf.ConfigPath = filepath.Join(t.TempDir(), "missing", "config.toml")
 	original := *api.conf
-	if w := initRequest(t, api, r, nil); w.Code != 500 {
+	if w := initRequest(t, api, r, map[string]any{"sip": map[string]any{"host": "192.0.2.40", "id": "44123456782000000002", "password": "new-sip"}, "onvif_password": "new-onvif", "media": map[string]any{"sdp_ip": "198.51.100.40"}}); w.Code != 500 {
 		t.Fatalf("write failure: %d %s", w.Code, w.Body.String())
 	}
-	if !reflect.DeepEqual(api.conf.Server, original.Server) || api.conf.Sip != original.Sip || api.conf.ONVIF != original.ONVIF {
+	if !reflect.DeepEqual(api.conf.Server, original.Server) || api.conf.Sip != original.Sip || api.conf.ONVIF != original.ONVIF || api.conf.Media != original.Media {
 		t.Fatal("failed save changed runtime")
 	}
 	api.conf.ConfigPath = filepath.Join(t.TempDir(), "config.toml")
@@ -164,7 +164,7 @@ func TestInitializeOptionsAndValidation(t *testing.T) {
 			if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
 				t.Fatal(err)
 			}
-			if response["restart_required"] != true || response["token"] != nil {
+			if response["restart_required"] != false || response["token"] != nil {
 				t.Fatal("restart/login response contract")
 			}
 		})

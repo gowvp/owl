@@ -20,7 +20,7 @@ import (
 const ignorePassword = "#"
 
 type GB28181API struct {
-	cfg  *conf.SIP
+	cfg  *conf.Bootstrap
 	core ipc.Adapter
 
 	catalog *sip.Collector[Channels]
@@ -35,7 +35,7 @@ type GB28181API struct {
 
 func NewGB28181API(cfg *conf.Bootstrap, store ipc.Adapter, sms *sms.NodeManager) *GB28181API {
 	g := GB28181API{
-		cfg:  &cfg.Sip,
+		cfg:  cfg,
 		core: store,
 		sms:  sms,
 		catalog: sip.NewCollector(func(c1, c2 *Channels) bool {
@@ -62,7 +62,8 @@ func NewGB28181API(cfg *conf.Bootstrap, store ipc.Adapter, sms *sms.NodeManager)
 			// 使用设备注册时的 SIP 域名构造通道 URI，而非服务器 ID 域名
 			domain := d.region
 			if domain == "" {
-				domain = g.cfg.GetDomain()
+				cfg := g.sipConfig()
+				domain = cfg.GetDomain()
 			}
 			for _, ch := range channel {
 				ch := Channel{
@@ -109,6 +110,11 @@ func NewGB28181API(cfg *conf.Bootstrap, store ipc.Adapter, sms *sms.NodeManager)
 	return &g
 }
 
+// sipConfig returns one committed configuration for an entire SIP operation.
+func (g *GB28181API) sipConfig() conf.SIP {
+	return g.cfg.Snapshot().Sip
+}
+
 // filterUnknowDevices 国标 ID 校验，正常是长度为 20 的纯数字字符串
 func filterUnknowDevices(deviceID string) error {
 	if len(deviceID) < 18 {
@@ -127,6 +133,7 @@ func filterUnknowDevices(deviceID string) error {
 }
 
 func (g *GB28181API) handlerRegister(ctx *sip.Context) {
+	cfg := g.sipConfig()
 	// 为什么: 设备端 Request-URI 的 user 部分应为目标平台 ID。若不一致说明设备侧 SIP 服务器 ID 配置错误,
 	// 直接放行会导致后续 MESSAGE/INVITE 因 Request-URI 不匹配被设备静默丢弃(海康等厂商严格校验),
 	// 提前拒绝并给出明确日志便于用户自查。
@@ -135,15 +142,15 @@ func (g *GB28181API) handlerRegister(ctx *sip.Context) {
 		if u := recipient.User(); u != nil {
 			reqID = u.String()
 		}
-		if reqID != g.cfg.ID {
+		if reqID != cfg.ID {
 			slog.Error("设备 SIP 服务器 ID 与平台不匹配，拒绝注册",
 				"device_id", ctx.DeviceID,
 				"device_target_id", reqID,
-				"platform_id", g.cfg.ID,
+				"platform_id", cfg.ID,
 				"source", ctx.Source.String(),
 			)
 			wsnotify.IPCWarn("注册失败: SIP 服务器 ID 不匹配", ctx.DeviceID, "")
-			ctx.String(http.StatusForbidden, fmt.Sprintf("server id mismatch, expect %s got %s", g.cfg.ID, reqID))
+			ctx.String(http.StatusForbidden, fmt.Sprintf("server id mismatch, expect %s got %s", cfg.ID, reqID))
 			return
 		}
 	}
@@ -163,7 +170,7 @@ func (g *GB28181API) handlerRegister(ctx *sip.Context) {
 
 	password := dev.Password
 	if password == "" {
-		password = g.cfg.Password
+		password = cfg.Password
 	}
 	// 免鉴权
 	if dev.Password == ignorePassword {
@@ -174,7 +181,7 @@ func (g *GB28181API) handlerRegister(ctx *sip.Context) {
 		hdrs := ctx.Request.GetHeaders("Authorization")
 		if len(hdrs) == 0 {
 			resp := sip.NewResponseFromRequest("", ctx.Request, http.StatusUnauthorized, http.StatusText(http.StatusUnauthorized), nil)
-			resp.AppendHeader(&sip.GenericHeader{HeaderName: "WWW-Authenticate", Contents: fmt.Sprintf(`Digest realm="%s",qop="auth",nonce="%s"`, g.cfg.GetDomain(), sip.RandString(32))})
+			resp.AppendHeader(&sip.GenericHeader{HeaderName: "WWW-Authenticate", Contents: fmt.Sprintf(`Digest realm="%s",qop="auth",nonce="%s"`, cfg.GetDomain(), sip.RandString(32))})
 			_ = ctx.Tx.Respond(resp)
 			return
 		}

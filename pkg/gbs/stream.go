@@ -64,9 +64,10 @@ type Streams struct {
 var ssrcCounter atomic.Uint32
 
 func (g *GB28181API) getSSRC(t int) string {
+	cfg := g.sipConfig()
 	v := ssrcCounter.Add(1)
 	ssrc := v % 9000
-	key := fmt.Sprintf("%d%s%04d", t, g.cfg.GetDomain()[3:8], ssrc)
+	key := fmt.Sprintf("%d%s%04d", t, cfg.GetDomain()[3:8], ssrc)
 	return key
 }
 
